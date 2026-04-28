@@ -6,7 +6,7 @@ const token = params.get("token");
 // ========== MAINTENANCE MODE ==========
 // Set to true to put the portal in maintenance mode
 // Set to false to allow normal access
-const MAINTENANCE_MODE = true;
+const MAINTENANCE_MODE = false;
 // =====================================
 
 // ========== AVAILABLE MONTHS ==========
@@ -211,13 +211,18 @@ async function verifyUser() {
     return false;
   }
 
-  if (!isTrue(tokenRes.success) || !isTrue(verifyRes.valid)) {
+  if (!isTrue(tokenRes.success)) {
     showDeniedOverlay("INVALID_LOGIN");
     return false;
   }
 
   if (!isTrue(tokenRes.isActive)) {
     showDeniedOverlay("SUSPENDED");
+    return false;
+  }
+
+  if (!isTrue(verifyRes.valid)) {
+    showDeniedOverlay("INVALID_LOGIN");
     return false;
   }
 
