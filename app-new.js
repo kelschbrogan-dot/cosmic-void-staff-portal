@@ -272,14 +272,16 @@ async function verifyUser() {
     return false;
   }
 
-  if (state.maintenance && !isTrue(verifyRes.isWebAdmin)) {
-    showDeniedOverlay("MAINTENANCE");
-    return false;
-  }
+  const role = getUserRole({ isWebAdmin: verifyRes.isWebAdmin });
+
+if (state.maintenance && role === "MEMBER") {
+  showDeniedOverlay("MAINTENANCE");
+  return false;
+}
 
   state.user = {
     ...tokenRes,
-    isWebAdmin: isTrue(verifyRes.isWebAdmin)
+    isWebAdmin: verifyRes.isWebAdmin
   };
 
   if (state.user.isWebAdmin) {
