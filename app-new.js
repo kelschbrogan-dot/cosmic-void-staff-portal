@@ -278,12 +278,13 @@ async function verifyUser() {
     return false;
   }
 
-  const verifiedUser = {
-    discordId: userId,
-    isWebAdmin: verifyRes.isWebAdmin,
-    name: verifyRes.name,
-    avatarURL: verifyRes.avatarURL
-  };
+const verifiedUser = {
+  discordId: userId,
+  isWebAdmin: verifyRes.isWebAdmin ?? tokenRes.isWebAdmin,
+  name: verifyRes.name ?? tokenRes.name,
+  avatarURL: verifyRes.avatarURL ?? tokenRes.avatarURL
+};
+
 
   if (state.maintenance && !canManageMaintenance(verifiedUser)) {
     showDeniedOverlay("MAINTENANCE");
