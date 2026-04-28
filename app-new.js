@@ -3,6 +3,16 @@ const params = new URLSearchParams(window.location.search);
 const userId = params.get("id");
 const token = params.get("token");
 
+// ========== AVAILABLE MONTHS ==========
+// Add/remove months that have data here
+// Format: "YYYY-MM" (e.g., "2026-04" for April 2026)
+// Example: ["2026-04", "2026-05", "2026-06"]
+const AVAILABLE_MONTHS = [
+  "2026-04",  // April 2026
+  "2026-05"   // May 2026
+];
+// =====================================
+
 const state = {
   staff: [],
   ratings: [],
@@ -233,19 +243,20 @@ function buildMonthOptions() {
   const select = getEl("adminMonthSelect");
   if (!select) return;
 
-  const current = new Date();
-  const months = [];
-  
-  // Generate 24 months for better historical access
-  for (let i = 0; i < 24; i++) {
-    const date = new Date(current.getFullYear(), current.getMonth() - i, 1);
-    const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  const months = AVAILABLE_MONTHS.map(monthStr => {
+    const [year, month] = monthStr.split('-');
+    const date = new Date(year, parseInt(month) - 1, 1);
     const display = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
-    months.push({ value, display });
-  }
+    return { value: monthStr, display };
+  });
 
   select.innerHTML = months.map(m => `<option value="${m.value}">${m.display}</option>`).join("");
-  select.value = state.month;
+  
+  // Set to current month if available, otherwise first available month
+  const currentMonthStr = state.month;
+  select.value = AVAILABLE_MONTHS.includes(currentMonthStr) ? currentMonthStr : AVAILABLE_MONTHS[0];
+  state.month = select.value;
+  
   select.addEventListener("change", async () => {
     state.month = select.value;
     await loadAdmin();
