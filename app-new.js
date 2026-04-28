@@ -234,12 +234,17 @@ function buildMonthOptions() {
   if (!select) return;
 
   const current = new Date();
-  select.innerHTML = Array.from({ length: 12 }, (_, index) => {
-    const date = new Date(current.getFullYear(), current.getMonth() - index, 1);
+  const months = [];
+  
+  // Generate 24 months for better historical access
+  for (let i = 0; i < 24; i++) {
+    const date = new Date(current.getFullYear(), current.getMonth() - i, 1);
     const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-    return `<option value="${value}">${value}</option>`;
-  }).join("");
+    const display = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
+    months.push({ value, display });
+  }
 
+  select.innerHTML = months.map(m => `<option value="${m.value}">${m.display}</option>`).join("");
   select.value = state.month;
   select.addEventListener("change", async () => {
     state.month = select.value;
@@ -281,7 +286,7 @@ function renderReviews() {
           <p>${String(note.note || "").trim() || "No note content."}</p>
         </div>
       `).join("") : `
-        <div class="note-item"><p>No notes yet.</p></div>
+        <div class="note-item"><p style="opacity: 0.7;">No notes yet.</p></div>
       `;
 
     return `
@@ -384,43 +389,53 @@ function renderAdmin() {
   const negativeNotes = state.notes.filter(note => note.type === "Negative").length;
   const averageRating = computeAverageRating(state.ratings);
 
+  // Calculate completion stats
+  const totalPossibleRatings = activeStaff.length * (activeStaff.length - 1); // Everyone rates everyone except themselves
+  const ratingCompletion = totalPossibleRatings > 0 ? Math.round((ratingCount / totalPossibleRatings) * 100) : 0;
+
   statsBox.innerHTML = `
     <div class="stat-card">
       <b>General rating</b>
-      <span>${averageRating ? `${averageRating.toFixed(1)} / 5` : "N/A"}</span>
+      <span style="font-size: 1.4em; color: #3b82f6;">${averageRating ? `${averageRating.toFixed(1)} / 5` : "N/A"}</span>
     </div>
     <div class="stat-card">
       <b>Active staff</b>
-      <span>${activeStaff.length}</span>
+      <span style="font-size: 1.4em; color: #10b981;">${activeStaff.length}</span>
     </div>
     <div class="stat-card">
-      <b>Total ratings</b>
-      <span>${ratingCount}</span>
+      <b>Ratings progress</b>
+      <span style="font-size: 1.4em; color: #f59e0b;">${ratingCount}/${totalPossibleRatings} (${ratingCompletion}%)</span>
     </div>
     <div class="stat-card">
       <b>Total notes</b>
-      <span>${noteCount}</span>
+      <span style="font-size: 1.4em; color: #8b5cf6;">${noteCount}</span>
     </div>
     <div class="stat-card">
       <b>Positive notes</b>
-      <span>${positiveNotes}</span>
+      <span style="font-size: 1.4em; color: #10b981;">👍 ${positiveNotes}</span>
     </div>
     <div class="stat-card">
       <b>Negative notes</b>
-      <span>${negativeNotes}</span>
+      <span style="font-size: 1.4em; color: #ef4444;">👎 ${negativeNotes}</span>
     </div>`;
 
   adminList.innerHTML = activeStaff.length ? activeStaff.map(member => {
     const targetId = String(member.discordId).trim();
-    const ratingCountForMember = state.ratings.filter(r => String(r.targetId).trim() === targetId).length;
-    const noteCountForMember = state.notes.filter(n => String(n.targetId).trim() === targetId).length;
+    const memberRatings = state.ratings.filter(r => String(r.targetId).trim() === targetId);
+    const memberNotes = state.notes.filter(n => String(n.targetId).trim() === targetId);
+    const memberAvgRating = computeAverageRating(memberRatings);
+    const ratingsReceived = memberRatings.length;
+    const positiveCount = memberNotes.filter(n => n.type === "Positive").length;
+    const negativeCount = memberNotes.filter(n => n.type === "Negative").length;
 
     return `
       <div class="staff-card" data-id="${targetId}">
+        <img src="${member.avatarURL || ''}" alt="${member.name}" style="width: 50px; height: 50px; border-radius: 50%; margin-bottom: 8px;">
         <div class="card-body">
           <b>${member.name}</b>
-          <p>Ratings: ${ratingCountForMember}</p>
-          <p>Notes: ${noteCountForMember}</p>
+          <p style="margin: 4px 0; opacity: 0.8;">Avg: <span style="color: #3b82f6; font-weight: bold;">${memberAvgRating ? memberAvgRating.toFixed(1) : 'N/A'}</span>/5</p>
+          <p style="margin: 4px 0; opacity: 0.8;"><span style="color: #94a3b8;">${ratingsReceived}</span> ratings</p>
+          <p style="margin: 4px 0; opacity: 0.8;">👍${positiveCount} / 👎${negativeCount}</p>
         </div>
       </div>`;
   }).join("") : `<div class="card"><p>No active staff found.</p></div>`;

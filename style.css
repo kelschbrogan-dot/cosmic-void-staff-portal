@@ -126,10 +126,19 @@ textarea {
   margin-top: 5px;
   padding: 8px;
   border-radius: 6px;
-  border: none;
+  border: 1px solid rgba(31, 41, 55, 0.5);
   background: #1f2937;
   color: white;
   margin-bottom: 12px;
+  transition: all 0.2s ease;
+}
+
+select:focus,
+textarea:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: -2px;
+  background: #273449;
+  border-color: #3b82f6;
 }
 
 label {
@@ -398,6 +407,10 @@ button:hover {
   display: grid;
   gap: 12px;
   margin-top: 12px;
+  background: rgba(15, 23, 42, 0.8);
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(31, 41, 55, 0.5);
 }
 
 .toggle-notes-body.hidden {
@@ -413,10 +426,112 @@ button:hover {
   color: #3b82f6;
 }
 
+/* Improved note styling - darker but readable */
+.note-summary {
+  background: rgba(17, 24, 39, 0.6);
+  padding: 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(31, 41, 55, 0.5);
+}
+
+.note-item {
+  background: #111827;
+  padding: 12px;
+  border-radius: 10px;
+  margin-bottom: 10px;
+  border-left: 3px solid #3b82f6;
+}
+
+/* Better visual feedback on admin cards */
+.staff-card {
+  transition: all 0.2s ease;
+  border: 1px solid rgba(31, 41, 55, 0.3);
+}
+
+.staff-card:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+}
+
+/* Better spacing in stat cards */
+.stat-card span {
+  margin-top: 8px;
+  display: block;
+}
+
+/* Menu improvements */
+.menu a {
+  transition: all 0.2s ease;
+  border-bottom: 2px solid transparent;
+}
+
+.menu a.active {
+  border-bottom-color: #3b82f6;
+  background: transparent;
+  color: #3b82f6;
+}
+
+.menu a:hover {
+  color: #3b82f6;
+}
+
+/* Responsive admin panels */
+@media (max-width: 768px) {
+  #adminStats {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  .admin-list {
+    grid-template-columns: 1fr;
+  }
+
+  .card {
+    flex-direction: column;
   }
 
   .card img {
     width: 60px;
     height: 60px;
+    align-self: center;
+    margin-bottom: 10px;
+  }
+
+  .card.no-click {
+    flex-direction: row;
+  }
+
+  .card.no-click img {
+    width: 50px;
+    height: 50px;
+    align-self: flex-start;
+    margin-bottom: 0;
+  }
+  
+  .header {
+    padding: 20px 10px;
+  }
+  
+  .logo {
+    width: 100px;
+    height: 100px;
+  }
+  
+  h1 {
+    font-size: 24px;
+  }
+
+  .container {
+    padding: 15px;
+  }
+
+  .menu {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  button,
+  .overlay-button {
+    font-size: 0.9rem;
+    padding: 8px 12px;
   }
 }
