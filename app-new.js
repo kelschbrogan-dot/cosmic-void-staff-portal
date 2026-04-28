@@ -19,6 +19,29 @@ function isTrue(value) {
   return value === true || String(value || "").trim().toLowerCase() === "true";
 }
 
+function mapRatingToNumber(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  const lookup = {
+    excels: 5,
+    "on par": 4,
+    "meets standards": 3,
+    "below par": 2,
+    "needs work": 1
+  };
+  if (lookup[normalized] !== undefined) return lookup[normalized];
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function computeAverageRating(ratings = []) {
+  const values = Array.isArray(ratings)
+    ? ratings.map(r => mapRatingToNumber(r.rating)).filter(n => typeof n === "number")
+    : [];
+
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
 function getEl(id) {
   return document.getElementById(id);
 }
@@ -273,16 +296,21 @@ function renderReviews() {
           </select>
           <textarea data-id="${targetId}" placeholder="Leave a comment...">${currentRating?.comment || ""}</textarea>
           <div class="note-summary">
-            <label>My notes</label>
-            <div class="note-list">${notesHtml}</div>
-            <label for="noteType-${targetId}">New note type</label>
-            <select id="noteType-${targetId}" data-note-id="${targetId}">
-              <option value="Positive">Positive 👍</option>
-              <option value="Negative">Negative 👎</option>
-            </select>
-            <label for="noteInput-${targetId}">Add a note</label>
-            <textarea id="noteInput-${targetId}" data-note-id="${targetId}" rows="3" placeholder="Add a note about this staff member..."></textarea>
-            <button class="save-note-button" data-note-id="${targetId}" type="button">Add note</button>
+            <button type="button" class="toggle-notes-header collapsed">
+              <span>My notes</span>
+              <span class="toggle-icon">▼</span>
+            </button>
+            <div class="toggle-notes-body hidden">
+              <div class="note-list">${notesHtml}</div>
+              <label for="noteType-${targetId}">New note type</label>
+              <select id="noteType-${targetId}" data-note-id="${targetId}">
+                <option value="Positive">Positive 👍</option>
+                <option value="Negative">Negative 👎</option>
+              </select>
+              <label for="noteInput-${targetId}">Add a note</label>
+              <textarea id="noteInput-${targetId}" data-note-id="${targetId}" rows="3" placeholder="Add a note about this staff member..."></textarea>
+              <button class="save-note-button" data-note-id="${targetId}" type="button">Add note</button>
+            </div>
           </div>
         </div>
       </div>`;
@@ -296,6 +324,15 @@ function renderReviews() {
     button.addEventListener("click", async () => {
       const targetId = button.dataset.noteId;
       if (targetId) await saveNoteForTarget(targetId);
+    });
+  });
+
+  document.querySelectorAll(".toggle-notes-header").forEach(button => {
+    const body = button.closest(".note-summary")?.querySelector(".toggle-notes-body");
+    if (!body) return;
+    button.addEventListener("click", () => {
+      const isHidden = body.classList.toggle("hidden");
+      button.classList.toggle("open", !isHidden);
     });
   });
 }
@@ -345,8 +382,13 @@ function renderAdmin() {
   const noteCount = state.notes.length;
   const positiveNotes = state.notes.filter(note => note.type === "Positive").length;
   const negativeNotes = state.notes.filter(note => note.type === "Negative").length;
+  const averageRating = computeAverageRating(state.ratings);
 
   statsBox.innerHTML = `
+    <div class="stat-card">
+      <b>General rating</b>
+      <span>${averageRating ? `${averageRating.toFixed(1)} / 5` : "N/A"}</span>
+    </div>
     <div class="stat-card">
       <b>Active staff</b>
       <span>${activeStaff.length}</span>
