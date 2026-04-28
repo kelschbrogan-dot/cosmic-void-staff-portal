@@ -15,12 +15,10 @@
 
   <div class="menu">
     <a href="#" id="reviewsTab" data-page="reviews" class="active">Reviews</a>
-    <a href="#" id="adminTab" data-page="admin" class="hidden">Admin</a>
-    <a href="#" id="messagesTab" data-page="messages" class="hidden">Messages</a>
+    <a href="#" id="adminTab" data-page="admin" class="hidden">Moderator</a>
   </div>
 
   <div class="container">
-    <div id="messageBanners"></div>
     <div id="statusMessage" class="status-message"></div>
     <div id="loadingSpinner" class="spinner"></div>
 
@@ -41,39 +39,21 @@
 
     <div id="adminPage" class="page hidden">
       <div class="page-header">
-        <h2>Admin Dashboard</h2>
-      </div>
-      <div class="admin-tabs">
-        <button class="admin-tab-button active" data-admin-tab="ratings">Ratings</button>
-        <button class="admin-tab-button" data-admin-tab="messages">Messages</button>
-        <button class="admin-tab-button" data-admin-tab="staff">Staff Management</button>
-      </div>
-      <div id="adminContent">
-        <div id="ratingsTab" class="admin-tab-content">
-          <div class="admin-toolbar">
-            <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-              <label for="adminMonthSelect">Month:</label>
-              <select id="adminMonthSelect"></select>
-            </div>
-            <div id="adminControls" class="admin-controls"></div>
-          </div>
-          <div id="adminStats"></div>
-          <div id="adminList" class="admin-list"></div>
-        </div>
-        <div id="messagesTab" class="admin-tab-content hidden">
-          <div id="adminMessagesContainer"></div>
-        </div>
-        <div id="staffTab" class="admin-tab-content hidden">
-          <div id="adminStaffContainer"></div>
+        <div>
+          <h2>Moderator Dashboard</h2>
+          <p class="page-subtitle">Review staff activity, pinned staff notes, and account settings.</p>
         </div>
       </div>
-    </div>
-
-    <div id="messagesPage" class="page hidden">
-      <div class="page-header">
-        <h2>Messages</h2>
+      <div class="admin-toolbar">
+        <div class="admin-month-picker">
+          <label for="adminMonthSelect">Month</label>
+          <select id="adminMonthSelect"></select>
+        </div>
+        <div id="adminControls" class="admin-controls"></div>
       </div>
-      <div id="messagesContainer"></div>
+      <div id="adminStats"></div>
+      <div id="adminMessages"></div>
+      <div id="adminList" class="admin-list"></div>
     </div>
 
     <div id="revokedPage" class="page hidden">
