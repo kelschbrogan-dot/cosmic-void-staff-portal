@@ -12,11 +12,27 @@ const state = {
   staff: [],
   ratings: [],
   notes: [],
+  messages: [],
   month: getCurrentMonth(),
   user: null,
   reviewFilter: "all",
   maintenance: false
 };
+
+const noteDrafts = new Map();
+const adminStaffNoteDrafts = new Map();
+const openReviewNoteSections = new Set();
+const pendingNoteSaves = new Set();
+const messageComposeDraft = {
+  scope: "all",
+  title: "",
+  body: "",
+  isUrgent: false,
+  selectedIds: []
+};
+let optimisticNoteSequence = 0;
+let activeAdminModalTargetId = null;
+let hasPromptedUnreadMessages = false;
 
 function getCurrentMonth() {
   return new Date().toISOString().slice(0, 7);
@@ -101,7 +117,7 @@ function getRoleLabel(role) {
     case "ADMINISTRATOR":
       return "Administrator";
     case "ADMIN":
-      return "Admin";
+      return "Moderator";
     default:
       return "Member";
   }
@@ -117,7 +133,12 @@ function canManageMaintenance(user) {
 }
 
 function canAddAdmins(user) {
-  return getUserRole(user) === "ADMINISTRATOR";
+  const role = getUserRole(user);
+  return role === "DEVELOPER" || role === "ADMINISTRATOR";
+}
+
+function canSendMessages(user) {
+  return isAdmin(user);
 }
 
 function mapRatingToNumber(value) {
@@ -194,12 +215,324 @@ function stripNotePrefixes(noteText) {
   return text;
 }
 
+function getNoteTimestamp(note) {
+  const parsed = Date.parse(note?.updatedAt || "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function sortNotesForDisplay(notes) {
   return [...notes].sort((a, b) => {
     const staffPriority = Number(isStaffNoteText(b.note)) - Number(isStaffNoteText(a.note));
     if (staffPriority !== 0) return staffPriority;
+    const updatedAtDiff = getNoteTimestamp(b) - getNoteTimestamp(a);
+    if (updatedAtDiff !== 0) return updatedAtDiff;
     return String(getReviewerName(a.reviewerId)).localeCompare(String(getReviewerName(b.reviewerId)));
   });
+}
+
+function getNoteSaveKey(scope, targetId) {
+  return `${scope}:${String(targetId).trim()}`;
+}
+
+function getReviewNoteDraft(targetId) {
+  return noteDrafts.get(String(targetId).trim()) || {
+    type: "Positive",
+    text: "",
+    anonymous: false
+  };
+}
+
+function setReviewNoteDraft(targetId, updates) {
+  const key = String(targetId).trim();
+  noteDrafts.set(key, { ...getReviewNoteDraft(key), ...updates });
+}
+
+function clearReviewNoteDraft(targetId) {
+  noteDrafts.delete(String(targetId).trim());
+}
+
+function getAdminStaffNoteDraft(targetId) {
+  return adminStaffNoteDrafts.get(String(targetId).trim()) || {
+    type: "Positive",
+    text: ""
+  };
+}
+
+function setAdminStaffNoteDraft(targetId, updates) {
+  const key = String(targetId).trim();
+  adminStaffNoteDrafts.set(key, { ...getAdminStaffNoteDraft(key), ...updates });
+}
+
+function clearAdminStaffNoteDraft(targetId) {
+  adminStaffNoteDrafts.delete(String(targetId).trim());
+}
+
+function encodeStructuredNoteValue(value) {
+  return encodeURIComponent(String(value || ""));
+}
+
+function decodeStructuredNoteValue(value) {
+  try {
+    return decodeURIComponent(String(value || ""));
+  } catch (error) {
+    return String(value || "");
+  }
+}
+
+function buildMessageNoteText({ id, scope, title, body }) {
+  const segments = [
+    `id=${encodeStructuredNoteValue(id)}`,
+    `scope=${encodeStructuredNoteValue(scope)}`,
+    `title=${encodeStructuredNoteValue(title)}`
+  ];
+  return `[MESSAGE|${segments.join("|")}] ${String(body || "").trim()}`.trim();
+}
+
+function buildMessageReadNoteText({ id }) {
+  return `[MESSAGE_READ|id=${encodeStructuredNoteValue(id)}]`;
+}
+
+function parseStructuredNote(noteText) {
+  const match = String(noteText || "").trim().match(/^\[(MESSAGE|MESSAGE_READ)(?:\|([^\]]+))?\]\s*([\s\S]*)$/i);
+  if (!match) return null;
+
+  const [, rawKind, rawMeta = "", rawBody = ""] = match;
+  const meta = {};
+
+  if (rawMeta) {
+    rawMeta.split("|").forEach(segment => {
+      const separatorIndex = segment.indexOf("=");
+      if (separatorIndex === -1) return;
+      const key = segment.slice(0, separatorIndex).trim().toLowerCase();
+      const value = segment.slice(separatorIndex + 1);
+      if (!key) return;
+      meta[key] = decodeStructuredNoteValue(value);
+    });
+  }
+
+  return {
+    kind: rawKind.toUpperCase(),
+    meta,
+    body: rawBody.trim()
+  };
+}
+
+function getStructuredNote(note) {
+  return parseStructuredNote(typeof note === "string" ? note : note?.note);
+}
+
+function isMessageNote(note) {
+  return getStructuredNote(note)?.kind === "MESSAGE";
+}
+
+function isMessageReadNote(note) {
+  return getStructuredNote(note)?.kind === "MESSAGE_READ";
+}
+
+function isSystemMessageEntry(note) {
+  return isMessageNote(note) || isMessageReadNote(note);
+}
+
+function getStandardNotes(notes = state.notes) {
+  return notes.filter(note => !isSystemMessageEntry(note));
+}
+
+function generateMessageId() {
+  return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function pluralize(count, singular, pluralForm) {
+  return `${count} ${count === 1 ? singular : (pluralForm || `${singular}s`)}`;
+}
+
+function formatDateTime(value) {
+  const parsed = Date.parse(value || "");
+  if (!Number.isFinite(parsed)) return "Unknown time";
+  return new Date(parsed).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+
+function getSendableStaff(includeSuspended = true) {
+  return state.staff.filter(member => {
+    if (!member) return false;
+    if (String(member.discordId).trim() === String(userId).trim()) return false;
+    return includeSuspended ? true : isTrue(member.isActive);
+  });
+}
+
+function normalizeMessageList(values) {
+  if (!Array.isArray(values)) return [];
+  return values.map(value => String(value || "").trim()).filter(Boolean);
+}
+
+function getAllActiveRecipientIds(senderId) {
+  return state.staff
+    .filter(member => member && isTrue(member.isActive) && String(member.discordId).trim() !== String(senderId || "").trim())
+    .map(member => String(member.discordId).trim());
+}
+
+function matchesAllActiveStaff(recipientIds, senderId) {
+  const activeRecipientIds = getAllActiveRecipientIds(senderId);
+  if (!activeRecipientIds.length) return false;
+  if (recipientIds.includes("ALL")) return true;
+  return recipientIds.length === activeRecipientIds.length && activeRecipientIds.every(id => recipientIds.includes(id));
+}
+
+function normalizeMessageRecord(message) {
+  const recipientIds = normalizeMessageList(message?.recipientIds);
+  const readBy = normalizeMessageList(message?.readBy);
+  const senderId = String(message?.senderId || "").trim();
+  const scope = matchesAllActiveStaff(recipientIds, senderId)
+    ? "all"
+    : recipientIds.length <= 1
+      ? "single"
+      : "selected";
+
+  return {
+    id: String(message?.id || "").trim(),
+    senderId,
+    recipientIds,
+    subject: String(message?.subject || "").trim() || "Portal Message",
+    message: String(message?.message || "").trim(),
+    isUrgent: isTrue(message?.isUrgent),
+    sentAt: message?.sentAt || "",
+    readBy,
+    scope
+  };
+}
+
+function resolveMessageRecipientIds(message) {
+  const normalized = normalizeMessageRecord(message);
+
+  if (!normalized.recipientIds.includes("ALL")) {
+    return [...new Set(normalized.recipientIds)];
+  }
+
+  const activeRecipients = getAllActiveRecipientIds(normalized.senderId);
+
+  return [...new Set([...activeRecipients, ...normalized.readBy])];
+}
+
+function getMessageDataset() {
+  const allMessages = (Array.isArray(state.messages) ? state.messages : [])
+    .map(normalizeMessageRecord)
+    .filter(message => message.id);
+
+  const groupedMessages = allMessages.map(message => {
+    const resolvedRecipientIds = resolveMessageRecipientIds(message);
+    const recipients = resolvedRecipientIds.map(recipientId => ({
+      recipientId,
+      recipientName: getReviewerName(recipientId),
+      isRead: message.readBy.includes(recipientId),
+      readAt: null,
+      isActive: isTrue(state.staff.find(member => String(member.discordId).trim() === recipientId)?.isActive)
+    })).sort((a, b) => {
+      if (a.isRead !== b.isRead) return Number(a.isRead) - Number(b.isRead);
+      return String(a.recipientName).localeCompare(String(b.recipientName));
+    });
+
+    const readCount = recipients.filter(recipient => recipient.isRead).length;
+
+    return {
+      messageId: message.id,
+      scope: message.scope,
+      title: message.subject,
+      body: message.message,
+      senderId: message.senderId,
+      senderName: getReviewerName(message.senderId),
+      sentAt: message.sentAt,
+      isUrgent: message.isUrgent,
+      recipients,
+      readCount,
+      unreadCount: Math.max(recipients.length - readCount, 0),
+      totalRecipients: recipients.length
+    };
+  }).sort((a, b) => Date.parse(b.sentAt || "") - Date.parse(a.sentAt || ""));
+
+  const inboxMessages = allMessages
+    .filter(message =>
+      message.senderId !== String(userId).trim() &&
+      (message.recipientIds.includes(String(userId).trim()) || matchesAllActiveStaff(message.recipientIds, message.senderId))
+    )
+    .map(message => ({
+      ...message,
+      title: message.subject,
+      body: message.message,
+      messageId: message.id,
+      senderName: getReviewerName(message.senderId),
+      isRead: message.readBy.includes(String(userId).trim()),
+      readAt: null
+    }))
+    .sort((a, b) => {
+      if (a.isRead !== b.isRead) return Number(a.isRead) - Number(b.isRead);
+      return Date.parse(b.sentAt || "") - Date.parse(a.sentAt || "");
+    });
+
+  return {
+    messages: allMessages,
+    groupedMessages,
+    inboxMessages
+  };
+}
+
+function getInboxMessages() {
+  return getMessageDataset().inboxMessages;
+}
+
+function getUnreadMessages() {
+  return getInboxMessages().filter(message => !message.isRead);
+}
+
+function getMessageScopeLabel(scope, totalRecipients) {
+  if (scope === "all") return "All active staff";
+  if (scope === "single") return "Single staff member";
+  return `${pluralize(totalRecipients, "selected staff member")}`;
+}
+
+function createOptimisticNote({ reviewerId, targetId, type, note }) {
+  return {
+    month: state.month,
+    reviewerId: String(reviewerId).trim(),
+    targetId: String(targetId).trim(),
+    type: String(type || "Positive").trim() || "Positive",
+    note: String(note || "").trim(),
+    updatedAt: new Date().toISOString(),
+    pending: true,
+    localId: `local-note-${Date.now()}-${optimisticNoteSequence++}`
+  };
+}
+
+function addOptimisticNote(note) {
+  state.notes = [...state.notes, note];
+  return note;
+}
+
+function finalizeOptimisticNote(note) {
+  let found = false;
+
+  state.notes = state.notes.map(currentNote => {
+    if (currentNote.localId !== note.localId) return currentNote;
+    found = true;
+    return { ...currentNote, pending: false };
+  });
+
+  if (!found) {
+    state.notes = [...state.notes, { ...note, pending: false }];
+  }
+}
+
+function removeOptimisticNote(localId) {
+  state.notes = state.notes.filter(note => note.localId !== localId);
+}
+
+function refreshAdminStaffModal(targetId) {
+  if (activeAdminModalTargetId === String(targetId).trim()) {
+    openAdminStaffModal(targetId);
+  }
 }
 
 function getReviewerName(reviewerId) {
@@ -219,7 +552,7 @@ function getMyRatings() {
 }
 
 function getMyNotes() {
-  return state.notes.filter(note => {
+  return getStandardNotes(state.notes).filter(note => {
     const reviewerMatches = String(note.reviewerId).trim() === String(userId).trim();
     const targetMatches = String(note.targetId).trim() !== String(userId).trim();
     return reviewerMatches && targetMatches;
@@ -298,6 +631,7 @@ function hidePopup() {
   overlay.setAttribute("aria-hidden", "true");
   bodyEl.innerHTML = "";
   actionsEl.innerHTML = "";
+  activeAdminModalTargetId = null;
 }
 
 function showDeniedOverlay(reason) {
@@ -514,6 +848,8 @@ function renderReviewsSummary() {
   const negativeRatings = getMyRatings().filter(rating => isNegativeRating(rating.rating)).length;
   const notesAdded = getMyNotes().length;
   const remaining = Math.max(totalTargets - completedCount, 0);
+  const inboxMessages = getInboxMessages();
+  const unreadCount = inboxMessages.filter(message => !message.isRead).length;
 
   container.innerHTML = `
     <div class="summary-shell">
@@ -553,9 +889,402 @@ function renderReviewsSummary() {
           <div class="stat-value">${notesAdded}</div>
           <div class="stat-subtext">notes you left for others</div>
         </div>
+        <div class="mini-stat ${unreadCount ? "message-attention" : ""}">
+          <b>Messages</b>
+          <div class="stat-value ${unreadCount ? "warning" : "accent"}">${unreadCount}</div>
+          <div class="stat-subtext">
+            ${unreadCount
+              ? `You've got ${pluralize(unreadCount, "unread message")}.`
+              : inboxMessages.length
+                ? "All portal messages have been read."
+                : "No portal messages yet."}
+          </div>
+          <button id="openInboxButton" class="button-soft message-inline-button" type="button">Open Inbox</button>
+        </div>
       </div>
     </div>
   `;
+
+  getEl("openInboxButton")?.addEventListener("click", () => {
+    openInboxModal();
+  });
+}
+
+function buildInboxMessageCardHtml(message) {
+  const unread = !message.isRead;
+
+  return `
+    <div class="message-card ${unread ? "message-card-unread" : "message-card-read"}">
+      <div class="message-card-header">
+        <div class="message-card-title">
+          <div class="note-badge-row">
+            <span class="note-badge ${unread ? "negative" : "positive"}">${unread ? "Unread" : "Read"}</span>
+            ${message.isUrgent ? '<span class="note-badge urgent-message-badge">Urgent</span>' : ""}
+          </div>
+          <b>${escapeHtml(message.title)}</b>
+          <small>From ${escapeHtml(message.senderName)} - ${escapeHtml(formatDateTime(message.sentAt))}</small>
+        </div>
+        ${unread
+          ? `<button class="button-soft message-action-button" type="button" data-message-read="${escapeHtml(message.messageId)}">Mark Read</button>`
+          : '<span class="message-read-pill">Confirmed</span>'}
+      </div>
+      <p>${escapeHtml(message.body || "No message content.")}</p>
+    </div>
+  `;
+}
+
+async function markMessageAsRead(messageId, options = {}) {
+  const normalizedMessageId = String(messageId || "").trim();
+  const message = getInboxMessages().find(item => item.messageId === normalizedMessageId);
+  if (!message || message.isRead) return true;
+
+  const saveKey = getNoteSaveKey("message-read", normalizedMessageId);
+  if (pendingNoteSaves.has(saveKey)) return false;
+
+  pendingNoteSaves.add(saveKey);
+  showStatus("Marking message as read...");
+
+  const result = await fetchApi("markMessageRead", {
+    messageId: normalizedMessageId,
+    userId
+  });
+
+  pendingNoteSaves.delete(saveKey);
+
+  if (!result?.success) {
+    showStatus("Failed to mark message as read.", "error");
+    return false;
+  }
+
+  state.messages = state.messages.map(currentMessage => {
+    if (String(currentMessage.id || "").trim() !== normalizedMessageId) return currentMessage;
+    const readBy = normalizeMessageList(currentMessage.readBy);
+    if (!readBy.includes(String(userId).trim())) {
+      readBy.push(String(userId).trim());
+    }
+    return { ...currentMessage, readBy };
+  });
+
+  if (!getUnreadMessages().length) {
+    hasPromptedUnreadMessages = false;
+  }
+
+  if (getEl("reviewsPage") && !getEl("reviewsPage").classList.contains("hidden")) {
+    renderReviews();
+  }
+
+  if (options.reopenInbox) {
+    const reopenOptions = options.reopenInbox.unreadOnly && !getUnreadMessages().length
+      ? {}
+      : options.reopenInbox;
+    openInboxModal(reopenOptions);
+  }
+
+  showStatus("Message marked as read.");
+  return true;
+}
+
+async function markAllMessagesRead(messages, reopenOptions = {}) {
+  const unreadMessages = (messages || []).filter(message => !message.isRead);
+  if (!unreadMessages.length) return;
+
+  showStatus(`Marking ${pluralize(unreadMessages.length, "message")} as read...`);
+
+  for (const message of unreadMessages) {
+    const success = await markMessageAsRead(message.messageId, {});
+    if (!success) break;
+  }
+
+  const nextOptions = reopenOptions.unreadOnly && !getUnreadMessages().length ? {} : reopenOptions;
+  openInboxModal(nextOptions);
+}
+
+function openInboxModal(options = {}) {
+  const dataset = getMessageDataset();
+  const unreadOnly = options.unreadOnly === true;
+  const inboxMessages = unreadOnly ? dataset.inboxMessages.filter(message => !message.isRead) : dataset.inboxMessages;
+  const unreadCount = dataset.inboxMessages.filter(message => !message.isRead).length;
+
+  const html = `
+    <div class="message-modal-shell">
+      <div class="message-summary-banner ${unreadCount ? "message-summary-banner-unread" : ""}">
+        <div>
+          <b>${unreadCount ? `You've got ${pluralize(unreadCount, "unread message")}.` : "Your inbox is clear."}</b>
+          <small>${dataset.inboxMessages.length ? `${dataset.inboxMessages.length} total portal message${dataset.inboxMessages.length === 1 ? "" : "s"} available.` : "No announcements have been sent to you yet."}</small>
+        </div>
+        <div class="message-summary-actions">
+          ${unreadOnly && dataset.inboxMessages.length !== inboxMessages.length ? '<button id="messageViewAllBtn" class="button-soft" type="button">View All</button>' : ""}
+          ${unreadCount > 1 ? '<button id="markAllMessagesReadBtn" class="button-soft" type="button">Mark All Read</button>' : ""}
+        </div>
+      </div>
+      <div class="stack-list">
+        ${inboxMessages.length
+          ? inboxMessages.map(buildInboxMessageCardHtml).join("")
+          : '<div class="empty-state">No messages to show right now.</div>'}
+      </div>
+    </div>
+  `;
+
+  showPopup(unreadOnly ? "Unread Messages" : "Inbox", html, [
+    { id: "closeInboxBtn", text: "Close", secondary: true, callback: hidePopup }
+  ]);
+
+  getEl("messageViewAllBtn")?.addEventListener("click", () => {
+    openInboxModal();
+  });
+
+  getEl("markAllMessagesReadBtn")?.addEventListener("click", async () => {
+    await markAllMessagesRead(dataset.inboxMessages, unreadOnly ? { unreadOnly: true } : {});
+  });
+
+  document.querySelectorAll("[data-message-read]").forEach(button => {
+    button.addEventListener("click", async () => {
+      const targetMessageId = button.getAttribute("data-message-read");
+      if (!targetMessageId) return;
+      await markMessageAsRead(targetMessageId, {
+        reopenInbox: unreadOnly ? { unreadOnly: true } : {}
+      });
+    });
+  });
+}
+
+function maybePromptUnreadMessages() {
+  const unreadMessages = getUnreadMessages();
+  if (!unreadMessages.length) {
+    hasPromptedUnreadMessages = false;
+    return;
+  }
+  if (hasPromptedUnreadMessages) return;
+  hasPromptedUnreadMessages = true;
+  openInboxModal({ unreadOnly: true });
+}
+
+function buildRecipientChecklistHtml(selectedIds) {
+  const selected = new Set(normalizeMessageList(selectedIds));
+  const recipients = getSendableStaff(true);
+
+  return recipients.length ? recipients.map(member => {
+    const targetId = String(member.discordId).trim();
+    return `
+      <label class="message-recipient-option" for="message-recipient-${escapeHtml(targetId)}">
+        <input
+          id="message-recipient-${escapeHtml(targetId)}"
+          type="checkbox"
+          value="${escapeHtml(targetId)}"
+          data-message-recipient
+          ${selected.has(targetId) ? "checked" : ""}
+        >
+        <span>
+          <b>${escapeHtml(member.name)}</b>
+          <small>${escapeHtml(getRoleLabel(getUserRole(member)))} - ${isTrue(member.isActive) ? "Active" : "Suspended"}</small>
+        </span>
+      </label>
+    `;
+  }).join("") : `<div class="empty-state">No other staff accounts are available to message.</div>`;
+}
+
+function openComposeMessageModal() {
+  const scope = messageComposeDraft.scope || "all";
+  const html = `
+    <div class="message-compose-grid">
+      <label for="messageScope">Audience</label>
+      <select id="messageScope">
+        <option value="all" ${scope === "all" ? "selected" : ""}>All active staff</option>
+        <option value="selected" ${scope === "selected" ? "selected" : ""}>Specific staff</option>
+      </select>
+
+      <div id="messageRecipientsBlock" class="${scope === "selected" ? "" : "hidden"}">
+        <label>Select recipients</label>
+        <div class="message-recipient-list">
+          ${buildRecipientChecklistHtml(messageComposeDraft.selectedIds)}
+        </div>
+      </div>
+
+      <label for="messageSubject">Subject</label>
+      <input id="messageSubject" type="text" value="${escapeHtml(messageComposeDraft.title)}" placeholder="Portal announcement title">
+
+      <label for="messageBody">Message</label>
+      <textarea id="messageBody" rows="6" placeholder="Write the announcement or notice here...">${escapeHtml(messageComposeDraft.body)}</textarea>
+
+      <label for="messageUrgent" class="checkbox-row">
+        <input id="messageUrgent" type="checkbox" ${messageComposeDraft.isUrgent ? "checked" : ""}>
+        Mark as urgent
+      </label>
+
+      <button id="sendMessageSubmitBtn" class="primary-button" type="button">Send Message</button>
+    </div>
+  `;
+
+  showPopup("Send Message", html, [
+    { id: "closeComposeMessageBtn", text: "Close", secondary: true, callback: hidePopup }
+  ]);
+
+  getEl("messageScope")?.addEventListener("change", event => {
+    messageComposeDraft.scope = event.target.value;
+    openComposeMessageModal();
+  });
+
+  getEl("messageSubject")?.addEventListener("input", event => {
+    messageComposeDraft.title = event.target.value;
+  });
+
+  getEl("messageBody")?.addEventListener("input", event => {
+    messageComposeDraft.body = event.target.value;
+  });
+
+  getEl("messageUrgent")?.addEventListener("change", event => {
+    messageComposeDraft.isUrgent = event.target.checked;
+  });
+
+  document.querySelectorAll("[data-message-recipient]").forEach(input => {
+    input.addEventListener("change", () => {
+      messageComposeDraft.selectedIds = Array.from(document.querySelectorAll("[data-message-recipient]:checked"))
+        .map(element => element.value);
+    });
+  });
+
+  getEl("sendMessageSubmitBtn")?.addEventListener("click", async () => {
+    const scopeValue = getEl("messageScope")?.value || "all";
+    const subject = getEl("messageSubject")?.value.trim() || "";
+    const body = getEl("messageBody")?.value.trim() || "";
+    const isUrgent = !!getEl("messageUrgent")?.checked;
+    const selectedIds = Array.from(document.querySelectorAll("[data-message-recipient]:checked"))
+      .map(element => String(element.value || "").trim())
+      .filter(Boolean);
+
+    const recipientIds = scopeValue === "all"
+      ? getAllActiveRecipientIds(userId)
+      : [...new Set(selectedIds)];
+
+    if (!subject || !body) {
+      showStatus("Add a subject and message before sending.");
+      return;
+    }
+
+    if (!recipientIds.length) {
+      showStatus("Pick at least one staff member.");
+      return;
+    }
+
+    showStatus("Sending message...");
+    showSpinner();
+
+    const result = await fetchApi("sendMessage", {
+      senderId: userId,
+      recipientIds,
+      subject,
+      message: body,
+      isUrgent
+    });
+
+    hideSpinner();
+
+    if (!result?.success) {
+      showStatus("Failed to send message.", "error");
+      return;
+    }
+
+    const newMessage = {
+      id: result.messageId,
+      senderId: userId,
+      recipientIds,
+      subject,
+      message: body,
+      isUrgent,
+      sentAt: new Date().toISOString(),
+      readBy: []
+    };
+
+    state.messages = [newMessage, ...state.messages];
+    messageComposeDraft.scope = "all";
+    messageComposeDraft.title = "";
+    messageComposeDraft.body = "";
+    messageComposeDraft.isUrgent = false;
+    messageComposeDraft.selectedIds = [];
+
+    hidePopup();
+
+    if (getEl("adminPage") && !getEl("adminPage").classList.contains("hidden")) {
+      renderAdmin();
+    }
+
+    showStatus("Message sent.");
+  });
+}
+
+function buildAdminMessageGroupHtml(group) {
+  return `
+    <details class="accordion-section message-admin-card">
+      <summary>
+        <span>
+          ${escapeHtml(group.title)}
+          <small class="message-summary-line">${escapeHtml(group.senderName)} - ${escapeHtml(formatDateTime(group.sentAt))} - ${escapeHtml(getMessageScopeLabel(group.scope, group.totalRecipients))}</small>
+        </span>
+        <span class="note-badge-row">
+          ${group.isUrgent ? '<span class="note-badge urgent-message-badge">Urgent</span>' : ""}
+          <span class="note-badge ${group.unreadCount ? "negative" : "positive"}">${group.readCount}/${group.totalRecipients} read</span>
+        </span>
+      </summary>
+      <div class="accordion-content">
+        <p>${escapeHtml(group.body || "No message content.")}</p>
+        <div class="message-recipient-status-grid">
+          ${group.recipients.map(recipient => `
+            <div class="message-recipient-status ${recipient.isRead ? "read" : "unread"}">
+              <b>${escapeHtml(recipient.recipientName)}</b>
+              <small>${recipient.isRead ? "Read" : "Unread"}${recipient.isActive ? "" : " - Suspended"}</small>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function renderAdminMessageCenter() {
+  const container = getEl("adminMessages");
+  if (!container) return;
+
+  const dataset = getMessageDataset();
+  const totalUnread = dataset.groupedMessages.reduce((sum, group) => sum + group.unreadCount, 0);
+  const fullyRead = dataset.groupedMessages.filter(group => group.unreadCount === 0).length;
+
+  container.innerHTML = `
+    <div class="summary-shell admin-message-shell">
+      <div class="page-header message-center-header">
+        <div>
+          <h3>Messages</h3>
+          <p class="page-subtitle">Send portal notices and track who has opened them.</p>
+        </div>
+        ${canSendMessages(state.user) ? '<button id="openComposeMessageBtn" class="primary-button" type="button">Send Message</button>' : ""}
+      </div>
+      <div class="summary-grid">
+        <div class="mini-stat">
+          <b>Total Messages</b>
+          <div class="stat-value accent">${dataset.groupedMessages.length}</div>
+          <div class="stat-subtext">currently tracked</div>
+        </div>
+        <div class="mini-stat ${totalUnread ? "message-attention" : ""}">
+          <b>Unread Receipts</b>
+          <div class="stat-value ${totalUnread ? "warning" : "positive"}">${totalUnread}</div>
+          <div class="stat-subtext">staff still need to confirm</div>
+        </div>
+        <div class="mini-stat">
+          <b>Fully Read</b>
+          <div class="stat-value positive">${fullyRead}</div>
+          <div class="stat-subtext">messages confirmed by everyone</div>
+        </div>
+      </div>
+      <div class="message-admin-list">
+        ${dataset.groupedMessages.length
+          ? dataset.groupedMessages.map(buildAdminMessageGroupHtml).join("")
+          : '<div class="empty-state">No messages have been sent yet.</div>'}
+      </div>
+    </div>
+  `;
+
+  getEl("openComposeMessageBtn")?.addEventListener("click", () => {
+    openComposeMessageModal();
+  });
 }
 
 function buildNoteHtml(note) {
@@ -570,6 +1299,10 @@ function buildNoteHtml(note) {
     badges.push(`<span class="staff-note-badge">[STAFF]</span>`);
   }
 
+  if (note.pending) {
+    badges.push(`<span class="note-badge pending-note-badge">Saving...</span>`);
+  }
+
   badges.push(
     `<span class="note-badge ${note.type === "Negative" ? "negative" : "positive"}">${escapeHtml(note.type || "Note")}</span>`
   );
@@ -579,7 +1312,7 @@ function buildNoteHtml(note) {
   }
 
   return `
-    <div class="note-item ${noteToneClass}${anonymous ? " anonymous-note" : ""}${staffNote ? " staff-note" : ""}">
+    <div class="note-item ${noteToneClass}${anonymous ? " anonymous-note" : ""}${staffNote ? " staff-note" : ""}${note.pending ? " pending-note" : ""}">
       <div class="note-meta">
         <div class="note-badge-row">${badges.join("")}</div>
         <small>${escapeHtml(reviewerName)}</small>
@@ -663,12 +1396,15 @@ function renderReviews() {
     );
     const selectedRating = currentRating?.rating || "N/A";
     const myNotes = sortNotesForDisplay(
-      state.notes.filter(note =>
+      getStandardNotes(state.notes).filter(note =>
         String(note.targetId).trim() === targetId &&
         String(note.reviewerId).trim() === String(userId).trim()
       )
     );
     const completed = getReviewCompletion(member);
+    const noteDraft = getReviewNoteDraft(targetId);
+    const noteSectionOpen = openReviewNoteSections.has(targetId);
+    const noteSavePending = pendingNoteSaves.has(getNoteSaveKey("review", targetId));
 
     const notesHtml = myNotes.length
       ? myNotes.map(note => buildNoteHtml(note)).join("")
@@ -691,24 +1427,26 @@ function renderReviews() {
           </select>
           <textarea data-id="${escapeHtml(targetId)}" placeholder="Leave a comment... (Optional)" class="review-comment-textarea">${escapeHtml(currentRating?.comment || "")}</textarea>
           <div class="note-summary">
-            <button type="button" class="toggle-notes-header" data-target-id="${escapeHtml(targetId)}">
+            <button type="button" class="toggle-notes-header${noteSectionOpen ? " open" : ""}" data-target-id="${escapeHtml(targetId)}">
               <span>My notes (${myNotes.length})</span>
               <span class="toggle-icon">v</span>
             </button>
-            <div class="toggle-notes-body hidden" id="notes-${escapeHtml(targetId)}">
+            <div class="toggle-notes-body${noteSectionOpen ? "" : " hidden"}" id="notes-${escapeHtml(targetId)}">
               <div class="stack-list">${notesHtml}</div>
               <label for="noteType-${escapeHtml(targetId)}">New note type</label>
               <select id="noteType-${escapeHtml(targetId)}" data-note-id="${escapeHtml(targetId)}">
-                <option value="Positive">Positive</option>
-                <option value="Negative">Negative</option>
+                <option value="Positive" ${noteDraft.type === "Positive" ? "selected" : ""}>Positive</option>
+                <option value="Negative" ${noteDraft.type === "Negative" ? "selected" : ""}>Negative</option>
               </select>
               <label for="noteInput-${escapeHtml(targetId)}">Add a note</label>
-              <textarea id="noteInput-${escapeHtml(targetId)}" data-note-id="${escapeHtml(targetId)}" rows="3" placeholder="Add a note about this staff member..."></textarea>
+              <textarea id="noteInput-${escapeHtml(targetId)}" data-note-id="${escapeHtml(targetId)}" rows="3" placeholder="Add a note about this staff member...">${escapeHtml(noteDraft.text)}</textarea>
               <label for="anon-${escapeHtml(targetId)}" class="checkbox-row">
-                <input type="checkbox" id="anon-${escapeHtml(targetId)}" data-anon-id="${escapeHtml(targetId)}">
+                <input type="checkbox" id="anon-${escapeHtml(targetId)}" data-anon-id="${escapeHtml(targetId)}" ${noteDraft.anonymous ? "checked" : ""}>
                 Submit anonymously
               </label>
-              <button class="save-note-button" data-note-id="${escapeHtml(targetId)}" type="button">Add Note</button>
+              <button class="save-note-button" data-note-id="${escapeHtml(targetId)}" type="button" ${noteSavePending ? "disabled" : ""}>
+                ${noteSavePending ? "Saving..." : "Add Note"}
+              </button>
             </div>
           </div>
         </div>
@@ -742,6 +1480,35 @@ function renderReviews() {
       if (!body) return;
       const isHidden = body.classList.toggle("hidden");
       button.classList.toggle("open", !isHidden);
+      if (isHidden) {
+        openReviewNoteSections.delete(targetId);
+      } else {
+        openReviewNoteSections.add(targetId);
+      }
+    });
+  });
+
+  document.querySelectorAll("#reviewsBox select[data-note-id]").forEach(element => {
+    element.addEventListener("change", () => {
+      const targetId = element.dataset.noteId;
+      if (!targetId) return;
+      setReviewNoteDraft(targetId, { type: element.value });
+    });
+  });
+
+  document.querySelectorAll("#reviewsBox textarea[data-note-id]").forEach(element => {
+    element.addEventListener("input", () => {
+      const targetId = element.dataset.noteId;
+      if (!targetId) return;
+      setReviewNoteDraft(targetId, { text: element.value });
+    });
+  });
+
+  document.querySelectorAll("#reviewsBox input[data-anon-id]").forEach(element => {
+    element.addEventListener("change", () => {
+      const targetId = element.dataset.anonId;
+      if (!targetId) return;
+      setReviewNoteDraft(targetId, { anonymous: element.checked });
     });
   });
 
@@ -749,7 +1516,7 @@ function renderReviews() {
     button.addEventListener("click", async () => {
       if (button.disabled) return;
       const targetId = button.dataset.noteId;
-      if (targetId) await saveNoteForTarget(targetId, button);
+      if (targetId) await saveNoteForTarget(targetId);
     });
   });
 }
@@ -800,8 +1567,13 @@ function renderAdminControls() {
   const role = getUserRole(state.user);
   const canMaintain = canManageMaintenance(state.user);
   const canAddNewAdmins = canAddAdmins(state.user);
+  const canMessageStaff = canSendMessages(state.user);
 
-  let html = `<button id="adminAddStaffBtn" type="button">Add New Staff</button>`;
+  let html = `<button id="adminAddStaffBtn" type="button">Add Staff Member</button>`;
+
+  if (canMessageStaff) {
+    html += `<button id="adminComposeMessageBtn" type="button">Send Message</button>`;
+  }
 
   if (canMaintain) {
     html += `
@@ -820,6 +1592,7 @@ function renderAdminControls() {
   });
 
   getEl("adminAddStaffBtn")?.addEventListener("click", openAddStaffModal);
+  getEl("adminComposeMessageBtn")?.addEventListener("click", openComposeMessageModal);
 
   if (!canAddNewAdmins && role === "MEMBER") {
     adminControls.innerHTML = "";
@@ -840,10 +1613,10 @@ async function toggleMaintenance(enabled) {
   hideSpinner();
 
   if (enabled) {
-    showPopup("Maintenance Enabled", "<p>Portal is now in maintenance mode. Only Web Admins can access it.</p>", [
+    showPopup("Maintenance Enabled", "<p>Portal is now in maintenance mode. Only administrators and developers can access it.</p>", [
       {
         id: "maintenanceAdminBtn",
-        text: "Back to Admin Panel",
+        text: "Back to Moderator Panel",
         callback: () => {
           hidePopup();
           loadAdmin();
@@ -869,7 +1642,7 @@ async function openAddStaffModal() {
     <label for="newRole">Role</label>
     <select id="newRole">
       <option value="FALSE">Member</option>
-      <option value="TRUE">Admin</option>
+      <option value="TRUE">Moderator</option>
       ${canAddNewAdmins ? '<option value="ADMINISTRATOR">Administrator</option>' : ""}
       ${canAddNewAdmins ? '<option value="DEVELOPER">Developer</option>' : ""}
     </select>
@@ -922,7 +1695,7 @@ async function openAddStaffModal() {
 }
 
 function getAdminTargetNotes(targetId) {
-  return state.notes.filter(note => String(note.targetId).trim() === String(targetId).trim());
+  return getStandardNotes(state.notes).filter(note => String(note.targetId).trim() === String(targetId).trim());
 }
 
 function getAdminTargetRatings(targetId) {
@@ -930,9 +1703,12 @@ function getAdminTargetRatings(targetId) {
 }
 
 async function saveAdminStaffNote(targetId) {
-  const type = getEl("adminStaffNoteType")?.value || "Positive";
-  const noteInput = getEl("adminStaffNoteInput");
-  let noteText = noteInput?.value.trim() || "";
+  const saveKey = getNoteSaveKey("moderator", targetId);
+  if (pendingNoteSaves.has(saveKey)) return;
+
+  const draft = getAdminStaffNoteDraft(targetId);
+  const type = draft.type || "Positive";
+  let noteText = draft.text.trim();
 
   if (!noteText) {
     showStatus("Enter a staff note before saving.");
@@ -943,8 +1719,18 @@ async function saveAdminStaffNote(targetId) {
     noteText = `[STAFF] ${noteText}`;
   }
 
+  pendingNoteSaves.add(saveKey);
+
+  const optimisticNote = addOptimisticNote(createOptimisticNote({
+    reviewerId: userId,
+    targetId,
+    type,
+    note: noteText.trim()
+  }));
+
+  clearAdminStaffNoteDraft(targetId);
   showStatus("Saving staff note...");
-  showSpinner();
+  refreshAdminStaffModal(targetId);
 
   const result = await fetchApi("saveNotes", {
     month: state.month,
@@ -954,22 +1740,26 @@ async function saveAdminStaffNote(targetId) {
     note: noteText.trim()
   });
 
-  if (!result) {
-    showError("Failed to save staff note.");
+  pendingNoteSaves.delete(saveKey);
+
+  if (!result || result.success === false) {
+    removeOptimisticNote(optimisticNote.localId);
+    setAdminStaffNoteDraft(targetId, { type, text: stripNotePrefixes(noteText) });
+    refreshAdminStaffModal(targetId);
+    showStatus("Failed to save staff note.", "error");
     return;
   }
 
-  const notes = await fetchApi("getNotes", { month: state.month });
-  state.notes = Array.isArray(notes) ? notes : state.notes;
-
-  hideSpinner();
+  finalizeOptimisticNote(optimisticNote);
+  refreshAdminStaffModal(targetId);
   showStatus("Staff note saved.");
-  openAdminStaffModal(targetId);
 }
 
 async function openAdminStaffModal(targetId) {
   const member = state.staff.find(staffMember => String(staffMember.discordId).trim() === String(targetId).trim());
   if (!member) return;
+
+  activeAdminModalTargetId = String(targetId).trim();
 
   const ratings = getAdminTargetRatings(targetId);
   const notes = sortNotesForDisplay(getAdminTargetNotes(targetId));
@@ -988,6 +1778,8 @@ async function openAdminStaffModal(targetId) {
     rating.rating !== "N/A"
   ).length;
   const canAddNewAdmins = canAddAdmins(state.user);
+  const adminNoteDraft = getAdminStaffNoteDraft(targetId);
+  const staffNoteSavePending = pendingNoteSaves.has(getNoteSaveKey("moderator", targetId));
 
   const ratingsHtml = buildRatingsHtml(ratings);
   const staffNotesHtml = staffNotes.length
@@ -1034,7 +1826,7 @@ async function openAdminStaffModal(targetId) {
             <div class="mini-stat">
               <b>Staff Notes</b>
               <div class="stat-value">${staffNotes.length}</div>
-              <div class="stat-subtext">pinned admin notes</div>
+              <div class="stat-subtext">pinned moderator notes</div>
             </div>
             <div class="mini-stat">
               <b>Positive Ratings</b>
@@ -1060,12 +1852,14 @@ async function openAdminStaffModal(targetId) {
         <div class="accordion-content">
           <label for="adminStaffNoteType">Pinned note type</label>
           <select id="adminStaffNoteType">
-            <option value="Positive">Positive</option>
-            <option value="Negative">Negative</option>
+            <option value="Positive" ${adminNoteDraft.type === "Positive" ? "selected" : ""}>Positive</option>
+            <option value="Negative" ${adminNoteDraft.type === "Negative" ? "selected" : ""}>Negative</option>
           </select>
           <label for="adminStaffNoteInput">Pinned note</label>
-          <textarea id="adminStaffNoteInput" rows="4" placeholder="[STAFF] Add an admin-only note for this user, including suspended staff."></textarea>
-          <button id="adminAddStaffNoteBtn" class="primary-button" type="button">Save Staff Note</button>
+          <textarea id="adminStaffNoteInput" rows="4" placeholder="[STAFF] Add a moderator-only note for this user, including suspended staff.">${escapeHtml(adminNoteDraft.text)}</textarea>
+          <button id="adminAddStaffNoteBtn" class="primary-button" type="button" ${staffNoteSavePending ? "disabled" : ""}>
+            ${staffNoteSavePending ? "Saving Staff Note..." : "Save Staff Note"}
+          </button>
           <div class="stack-list">${staffNotesHtml}</div>
         </div>
       </details>
@@ -1090,7 +1884,7 @@ async function openAdminStaffModal(targetId) {
             <label for="adminUserRole">Role</label>
             <select id="adminUserRole">
               <option value="FALSE" ${memberRole === "MEMBER" ? "selected" : ""}>Member</option>
-              <option value="TRUE" ${memberRole === "ADMIN" ? "selected" : ""}>Admin</option>
+              <option value="TRUE" ${memberRole === "ADMIN" ? "selected" : ""}>Moderator</option>
               <option value="ADMINISTRATOR" ${memberRole === "ADMINISTRATOR" ? "selected" : ""}>Administrator</option>
               <option value="DEVELOPER" ${memberRole === "DEVELOPER" ? "selected" : ""}>Developer</option>
             </select>
@@ -1107,9 +1901,17 @@ async function openAdminStaffModal(targetId) {
     </div>
   `;
 
-  showPopup(`Manage: ${member.name}`, html, [
+  showPopup(`Moderate: ${member.name}`, html, [
     { id: "adminCloseUserBtn", text: "Close", secondary: true, callback: hidePopup }
   ]);
+
+  getEl("adminStaffNoteType")?.addEventListener("change", event => {
+    setAdminStaffNoteDraft(targetId, { type: event.target.value });
+  });
+
+  getEl("adminStaffNoteInput")?.addEventListener("input", event => {
+    setAdminStaffNoteDraft(targetId, { text: event.target.value });
+  });
 
   getEl("adminAddStaffNoteBtn")?.addEventListener("click", async () => {
     await saveAdminStaffNote(targetId);
@@ -1179,27 +1981,35 @@ async function openAdminStaffModal(targetId) {
   });
 }
 
-async function saveNoteForTarget(targetId, button) {
-  const noteTypeElement = document.querySelector(`#reviewsBox select[data-note-id='${targetId}']`);
-  const noteTextElement = document.querySelector(`#reviewsBox textarea[data-note-id='${targetId}']`);
-  const anonCheckbox = document.querySelector(`#reviewsBox input[data-anon-id='${targetId}']`);
-  const noteType = noteTypeElement?.value || "Positive";
-  let noteText = noteTextElement?.value || "";
+async function saveNoteForTarget(targetId) {
+  const saveKey = getNoteSaveKey("review", targetId);
+  if (pendingNoteSaves.has(saveKey)) return;
+
+  const draft = getReviewNoteDraft(targetId);
+  const noteType = draft.type || "Positive";
+  let noteText = draft.text || "";
 
   if (!noteText.trim()) {
     showStatus("Please enter a note before saving.");
     return;
   }
 
-  if (anonCheckbox?.checked) {
+  if (draft.anonymous && !isAnonymousNoteText(noteText)) {
     noteText = `[ANON]${noteText}`;
   }
 
-  if (button) {
-    button.disabled = true;
-    button.textContent = "Saving...";
-  }
+  pendingNoteSaves.add(saveKey);
+  openReviewNoteSections.add(String(targetId).trim());
 
+  const optimisticNote = addOptimisticNote(createOptimisticNote({
+    reviewerId: userId,
+    targetId,
+    type: noteType,
+    note: noteText.trim()
+  }));
+
+  clearReviewNoteDraft(targetId);
+  renderReviews();
   showStatus("Saving note...");
 
   const result = await fetchApi("saveNotes", {
@@ -1210,21 +2020,21 @@ async function saveNoteForTarget(targetId, button) {
     note: noteText.trim()
   });
 
-  if (!result) {
-    showError("Failed to save note.");
-    if (button) {
-      button.disabled = false;
-      button.textContent = "Add Note";
-    }
+  pendingNoteSaves.delete(saveKey);
+
+  if (!result || result.success === false) {
+    removeOptimisticNote(optimisticNote.localId);
+    setReviewNoteDraft(targetId, {
+      type: noteType,
+      text: draft.text,
+      anonymous: draft.anonymous
+    });
+    renderReviews();
+    showStatus("Failed to save note.", "error");
     return;
   }
 
-  const notes = await fetchApi("getNotes", { month: state.month });
-  state.notes = Array.isArray(notes) ? notes : state.notes;
-
-  if (noteTextElement) noteTextElement.value = "";
-  if (anonCheckbox) anonCheckbox.checked = false;
-
+  finalizeOptimisticNote(optimisticNote);
   renderReviews();
   showStatus("Note saved.");
 }
@@ -1241,53 +2051,64 @@ async function loadReviews() {
 
   await refreshStaff();
 
-  const ratings = await fetchApi("getRatings", { month: state.month });
-  state.ratings = Array.isArray(ratings) ? ratings : [];
+  const [ratings, notes, messages] = await Promise.all([
+    fetchApi("getRatings", { month: state.month }),
+    fetchApi("getNotes", { month: state.month }),
+    fetchApi("getMessages", { userId })
+  ]);
 
-  const notes = await fetchApi("getNotes", { month: state.month });
+  state.ratings = Array.isArray(ratings) ? ratings : [];
   state.notes = Array.isArray(notes) ? notes : [];
+  state.messages = Array.isArray(messages) ? messages : [];
 
   renderProfileEditor();
   renderReviewFilterControls();
   renderReviews();
+  maybePromptUnreadMessages();
   hideSpinner();
   showStatus("Reviews loaded.");
 }
 
 async function loadAdmin() {
   if (!state.user || !isAdmin(state.user)) {
-    showError("Admin access required.");
+    showError("Moderator access required.");
     return;
   }
 
   showPage("admin");
-  showStatus("Loading admin dashboard...");
+  showStatus("Loading moderator dashboard...");
   showSpinner();
 
   await refreshStaff();
 
-  const ratings = await fetchApi("getRatings", { month: state.month });
-  state.ratings = Array.isArray(ratings) ? ratings : [];
+  const [ratings, notes, messages] = await Promise.all([
+    fetchApi("getRatings", { month: state.month }),
+    fetchApi("getNotes", { month: state.month }),
+    fetchApi("getAllMessages", {})
+  ]);
 
-  const notes = await fetchApi("getNotes", { month: state.month });
+  state.ratings = Array.isArray(ratings) ? ratings : [];
   state.notes = Array.isArray(notes) ? notes : [];
+  state.messages = Array.isArray(messages) ? messages : [];
 
   renderAdminControls();
   renderAdmin();
   hideSpinner();
-  showStatus("Admin dashboard loaded.");
+  showStatus("Moderator dashboard loaded.");
 }
 
 function renderAdmin() {
   const statsBox = getEl("adminStats");
+  const adminMessages = getEl("adminMessages");
   const adminList = getEl("adminList");
-  if (!statsBox || !adminList) return;
+  if (!statsBox || !adminMessages || !adminList) return;
 
   const allStaff = state.staff;
   const activeStaff = state.staff.filter(member => isTrue(member.isActive));
   const ratingCount = state.ratings.filter(rating => rating.rating && rating.rating !== "N/A").length;
-  const noteCount = state.notes.length;
-  const staffNoteCount = state.notes.filter(note => isStaffNoteText(note.note)).length;
+  const standardNotes = getStandardNotes(state.notes);
+  const noteCount = standardNotes.length;
+  const staffNoteCount = standardNotes.filter(note => isStaffNoteText(note.note)).length;
   const averageRating = computeAverageRating(state.ratings);
   const totalPossibleRatings = activeStaff.length * Math.max(activeStaff.length - 1, 0);
   const ratingCompletion = totalPossibleRatings > 0 ? Math.round((ratingCount / totalPossibleRatings) * 100) : 0;
@@ -1318,7 +2139,7 @@ function renderAdmin() {
   adminList.innerHTML = allStaff.length ? allStaff.map(member => {
     const targetId = String(member.discordId).trim();
     const memberRatings = state.ratings.filter(rating => String(rating.targetId).trim() === targetId);
-    const memberNotes = state.notes.filter(note => String(note.targetId).trim() === targetId);
+    const memberNotes = standardNotes.filter(note => String(note.targetId).trim() === targetId);
     const memberAvgRating = computeAverageRating(memberRatings);
     const ratingsReceived = memberRatings.length;
     const ratingsGiven = state.ratings.filter(rating =>
@@ -1357,6 +2178,8 @@ function renderAdmin() {
       </div>
     `;
   }).join("") : `<div class="card"><p>No staff found.</p></div>`;
+
+  renderAdminMessageCenter();
 
   adminList.querySelectorAll(".staff-card").forEach(card => {
     card.addEventListener("click", () => {
@@ -1408,232 +2231,6 @@ function setupNav() {
     event.preventDefault();
     await loadAdmin();
   });
-
-  getEl("messagesTab")?.addEventListener("click", async event => {
-    event.preventDefault();
-    await loadMessages();
-  });
-
-  // Setup admin sub-tabs
-  document.querySelectorAll(".admin-tab-button").forEach(button => {
-    button.addEventListener("click", async () => {
-      const tabName = button.dataset.adminTab;
-      
-      // Update active state
-      document.querySelectorAll(".admin-tab-button").forEach(btn => {
-        btn.classList.toggle("active", btn === button);
-      });
-      
-      // Hide all tab contents
-      document.querySelectorAll(".admin-tab-content").forEach(content => {
-        content.classList.add("hidden");
-      });
-      
-      // Show selected tab content
-      const tabElement = getEl(tabName + "Tab");
-      if (tabElement) {
-        tabElement.classList.remove("hidden");
-      }
-      
-      // Load specific tab content
-      if (tabName === "ratings") {
-        await loadAdmin();
-      } else if (tabName === "messages") {
-        await loadAdminMessagesTab();
-      } else if (tabName === "staff") {
-        await loadAdminStaffTab();
-      }
-    });
-  });
-}
-
-async function loadMessages() {
-  showPage("messages");
-  const container = getEl("messagesContainer");
-  if (!container) return;
-  
-  container.innerHTML = '<div class="card"><p>Loading messages...</p></div>';
-  showSpinner();
-  
-  try {
-    const messages = await fetchApi("getMessages", { userId });
-    if (!Array.isArray(messages)) {
-      showError("Failed to load messages");
-      return;
-    }
-    
-    hideSpinner();
-    renderUserMessages(messages);
-  } catch (e) {
-    console.error("Failed to load messages", e);
-    showError("Failed to load messages");
-    hideSpinner();
-  }
-}
-
-function renderUserMessages(messages) {
-  const container = getEl("messagesContainer");
-  if (!messages.length) {
-    container.innerHTML = '<div class="card"><p>No messages yet.</p></div>';
-    return;
-  }
-
-  container.innerHTML = messages.map(msg => {
-    const isRead = msg.readBy && msg.readBy.includes(userId);
-    return `
-      <div class="message-admin-item ${msg.isUrgent ? 'urgent' : ''} ${!isRead ? 'unread' : ''}">
-        <div class="message-admin-header">
-          <div class="message-admin-subject">${escapeHtml(msg.subject)}</div>
-          <div class="message-admin-meta">
-            ${new Date(msg.sentAt).toLocaleDateString()}
-          </div>
-        </div>
-        <div class="message-admin-recipients">
-          <strong>From:</strong> System Message
-        </div>
-        <div style="margin: 12px 0; line-height: 1.5;">${escapeHtml(msg.message).replace(/\n/g, '<br>')}</div>
-        <div class="message-admin-read-status">
-          <div class="message-admin-read-count">
-            Status: ${isRead ? '<span style="color: #10b981;">Read</span>' : '<span style="color: #f59e0b;">Unread</span>'}
-          </div>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-async function loadAdminMessagesTab() {
-  const container = getEl("adminMessagesContainer");
-  if (!container) return;
-
-  container.innerHTML = '<div class="card"><p>Loading messages...</p></div>';
-  showSpinner();
-
-  try {
-    const messages = await fetchApi("getAllMessages");
-    const staff = await fetchApi("getStaff");
-
-    if (!Array.isArray(messages) || !Array.isArray(staff)) {
-      showError("Failed to load messages");
-      return;
-    }
-
-    hideSpinner();
-    renderAdminMessages(messages, staff, container);
-  } catch (e) {
-    console.error("Messages load failed", e);
-    showError("Failed to load messages");
-    hideSpinner();
-  }
-}
-
-function renderAdminMessages(messages, staff, container) {
-  const staffMap = staff.reduce((map, s) => {
-    map[s.discordId] = s.name;
-    return map;
-  }, {});
-
-  const header = `
-    <div class="messages-admin-header">
-      <h3>All Messages</h3>
-      <button class="send-message-btn">📝 Send Message</button>
-    </div>
-  `;
-
-  if (!messages.length) {
-    container.innerHTML = `${header}<div class="card"><p>No messages sent yet.</p></div>`;
-    return;
-  }
-
-  container.innerHTML = `${header}<div class="messages-list">${messages.map(msg => {
-    const sender = staffMap[msg.senderId] || msg.senderId;
-    const recipients = msg.recipientIds.includes("ALL") ? ["All Staff"] :
-      msg.recipientIds.map(id => staffMap[id] || id);
-
-    const readByNames = msg.readBy.map(id => staffMap[id] || id);
-    const unreadCount = msg.recipientIds.includes("ALL") ?
-      staff.filter(s => isTrue(s.isActive) && !msg.readBy.includes(s.discordId)).length :
-      msg.recipientIds.filter(id => !msg.readBy.includes(id)).length;
-
-    return `
-      <div class="message-admin-item ${msg.isUrgent ? 'urgent' : ''}">
-        <div class="message-admin-header">
-          <div class="message-admin-subject">${escapeHtml(msg.subject)}</div>
-          <div class="message-admin-meta">
-            ${new Date(msg.sentAt).toLocaleDateString()} by ${escapeHtml(sender)}
-          </div>
-        </div>
-        <div class="message-admin-recipients">
-          <strong>To:</strong> ${recipients.map(r => escapeHtml(r)).join(", ")}
-        </div>
-        <div style="margin: 12px 0; line-height: 1.5;">${escapeHtml(msg.message).replace(/\n/g, '<br>')}</div>
-        <div class="message-admin-read-status">
-          <div class="message-admin-read-count">
-            Read by ${readByNames.length} of ${msg.recipientIds.includes("ALL") ? staff.filter(s => isTrue(s.isActive)).length : msg.recipientIds.length} recipients
-          </div>
-          ${readByNames.length > 0 || unreadCount > 0 ? `
-            <div class="message-admin-read-list">
-              ${readByNames.map(name => `<div class="message-admin-read-item read"><div class="message-admin-read-dot read"></div>${escapeHtml(name)}</div>`).join('')}
-              ${Array.from({length: unreadCount}).map(() => '<div class="message-admin-read-item unread"><div class="message-admin-read-dot unread"></div>Loading...</div>').join('')}
-            </div>
-          ` : ''}
-        </div>
-      </div>
-    `;
-  }).join('')}</div>`;
-}
-
-async function loadAdminStaffTab() {
-  const container = getEl("adminStaffContainer");
-  if (!container) return;
-
-  container.innerHTML = '<div class="card"><p>Loading staff...</p></div>';
-  showSpinner();
-
-  try {
-    const staff = await fetchApi("getStaff");
-    if (!Array.isArray(staff)) {
-      showError("Failed to load staff");
-      return;
-    }
-
-    hideSpinner();
-    renderAdminStaff(staff, container);
-  } catch (e) {
-    console.error("Staff load failed", e);
-    showError("Failed to load staff");
-    hideSpinner();
-  }
-}
-
-function renderAdminStaff(staff, container) {
-  const activeStaff = staff.filter(s => isTrue(s.isActive));
-  
-  container.innerHTML = `
-    <div style="margin-bottom: 20px; display: flex; gap: 10px;">
-      <button class="admin-list-add-btn" style="background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;">➕ Add Staff</button>
-    </div>
-    <div class="admin-list">
-      ${staff.map(s => `
-        <div class="staff-card ${isTrue(s.isActive) ? "staff-active" : "staff-suspended"}">
-          <div class="staff-card-header">
-            <img src="${escapeHtml(s.avatarURL || '')}" alt="${escapeHtml(s.name)}">
-            <div>
-              <b>${escapeHtml(s.name)}</b>
-              <p class="text-muted">
-                <span class="status-dot ${isTrue(s.isActive) ? "active" : "suspended"}"></span>
-                ${isTrue(s.isActive) ? "Active" : "Suspended"}
-              </p>
-              <span class="role-pill">${escapeHtml(getRoleLabel(getUserRole(s)))}</span>
-            </div>
-          </div>
-          <div class="staff-card-metrics">
-            <div>ID: <strong>${escapeHtml(s.discordId)}</strong></div>
-          </div>
-        </div>
-      `).join('')}
-    </div>
-  `;
 }
 
 (async function init() {
