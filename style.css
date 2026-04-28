@@ -19,8 +19,6 @@
   --warning-soft: rgba(244, 181, 83, 0.15);
   --staff: #7dd3fc;
   --staff-soft: rgba(125, 211, 252, 0.18);
-  --featured: #ffd36f;
-  --featured-soft: rgba(255, 211, 111, 0.16);
   --shadow: 0 18px 48px rgba(0, 0, 0, 0.34);
   --radius: 16px;
 }
@@ -546,24 +544,6 @@ label.checkbox-row {
   color: var(--text-muted);
 }
 
-.featured-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border-radius: 999px;
-  padding: 6px 10px;
-  background: var(--featured-soft);
-  border: 1px solid rgba(255, 211, 111, 0.28);
-  color: #ffe9b4;
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-
-.review-card-title {
-  display: grid;
-  gap: 8px;
-}
-
 .note-summary,
 .accordion-stack {
   display: grid;
@@ -646,12 +626,6 @@ label.checkbox-row {
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 14px;
-}
-
-.staff-review-card {
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;
 }
 
 .review-card p,
@@ -748,9 +722,6 @@ label.checkbox-row {
 .staff-card {
   padding: 16px;
   cursor: pointer;
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;
   transition: transform 0.15s ease, border-color 0.2s ease, background 0.2s ease;
 }
 
@@ -761,40 +732,6 @@ label.checkbox-row {
 
 .staff-card.staff-suspended {
   background: linear-gradient(180deg, rgba(41, 12, 21, 0.88) 0%, rgba(29, 11, 20, 0.82) 100%);
-}
-
-.staff-card-featured,
-.staff-review-card-featured {
-  border-color: rgba(255, 211, 111, 0.36);
-  background:
-    radial-gradient(circle at top right, rgba(255, 211, 111, 0.18), transparent 42%),
-    linear-gradient(180deg, rgba(33, 24, 10, 0.72) 0%, rgba(14, 24, 40, 0.94) 100%);
-  box-shadow: 0 22px 52px rgba(0, 0, 0, 0.38), 0 0 0 1px rgba(255, 211, 111, 0.08) inset;
-}
-
-.staff-card.staff-suspended.staff-card-featured {
-  background:
-    radial-gradient(circle at top right, rgba(255, 211, 111, 0.14), transparent 42%),
-    linear-gradient(180deg, rgba(46, 18, 22, 0.88) 0%, rgba(31, 14, 22, 0.9) 100%);
-}
-
-.staff-card-featured::before,
-.staff-review-card-featured::before {
-  content: attr(data-feature-emoji);
-  position: absolute;
-  top: -14px;
-  right: 14px;
-  font-size: clamp(2.75rem, 7vw, 4.4rem);
-  opacity: 0.14;
-  line-height: 1;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.staff-card-featured > *,
-.staff-review-card-featured > * {
-  position: relative;
-  z-index: 1;
 }
 
 .staff-card-header {
@@ -836,16 +773,6 @@ label.checkbox-row {
 
 .staff-card-metrics strong {
   color: var(--text);
-}
-
-.form-hint {
-  display: block;
-  margin-top: -4px;
-  color: var(--text-muted);
-}
-
-.input-disabled {
-  opacity: 0.65;
 }
 
 .overlay {
