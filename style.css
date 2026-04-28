@@ -583,6 +583,17 @@ button:hover {
   color: white;
   cursor: pointer;
   font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.toggle-notes-header:hover {
+  background: #1f2937;
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.toggle-notes-header.open {
+  background: #1f2937;
+  border-color: #3b82f6;
 }
 
 .toggle-notes-header .toggle-icon {
@@ -672,23 +683,72 @@ button:hover {
 
 /* Responsive admin panels */
 @media (max-width: 768px) {
+  .container {
+    padding: 10px;
+  }
+
+  .header {
+    padding: 20px 10px;
+  }
+
+  .logo {
+    width: 100px;
+    height: 100px;
+  }
+
+  h1 {
+    font-size: 24px;
+  }
+
+  .menu {
+    gap: 15px;
+    margin: 15px 0;
+  }
+
+  .menu a {
+    padding: 6px 10px;
+    font-size: 0.9em;
+  }
+
   #adminStats {
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px;
   }
 
   .admin-list {
     grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .admin-toolbar {
+    flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
+  }
+
+  .admin-toolbar > div:first-child {
+    display: flex;
+    justify-content: center;
+  }
+
+  .admin-controls {
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .admin-controls button {
+    min-width: 120px;
+    font-size: 0.9em;
   }
 
   .card {
-    flex-direction: column;
+    padding: 12px;
+    margin-bottom: 12px;
   }
 
   .card img {
-    width: 60px;
-    height: 60px;
-    align-self: center;
-    margin-bottom: 10px;
+    width: 50px;
+    height: 50px;
   }
 
   .card.no-click {
@@ -698,6 +758,159 @@ button:hover {
   .card.no-click img {
     width: 50px;
     height: 50px;
+  }
+
+  .card.user-card {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .card.user-card img {
+    width: 60px;
+    height: 60px;
+    margin-bottom: 12px;
+  }
+
+  .card-body {
+    gap: 8px;
+  }
+
+  .review-filter-controls {
+    gap: 6px;
+  }
+
+  .review-filter-controls button {
+    padding: 6px 10px;
+    font-size: 0.9em;
+  }
+
+  .toggle-notes-header {
+    padding: 10px 12px;
+    font-size: 0.9em;
+  }
+
+  .toggle-notes-body {
+    padding: 10px;
+  }
+
+  .overlay-panel {
+    width: 95%;
+    max-width: 500px;
+    padding: 20px;
+  }
+
+  .popup-section h4 {
+    font-size: 1em;
+  }
+
+  .popup-section h3 {
+    font-size: 1.1em;
+  }
+
+  .overlay-actions {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .overlay-button {
+    width: 100%;
+    padding: 12px;
+  }
+
+  .stat-card {
+    padding: 12px;
+  }
+
+  .stat-card span {
+    font-size: 1.1em;
+  }
+
+  .staff-card {
+    padding: 12px;
+  }
+
+  .staff-card img {
+    width: 45px;
+    height: 45px;
+  }
+
+  .note-item {
+    padding: 10px;
+    margin-bottom: 8px;
+  }
+
+  select,
+  textarea {
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+
+  input {
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+
+  button {
+    font-size: 16px;
+    min-height: 44px; /* Touch target size */
+  }
+
+  .edit-profile-toggle {
+    min-height: 44px;
+  }
+
+  .profile-editor-inline button {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 480px) {
+  .container {
+    padding: 8px;
+  }
+
+  .header {
+    padding: 15px 8px;
+  }
+
+  .logo {
+    width: 80px;
+    height: 80px;
+  }
+
+  h1 {
+    font-size: 20px;
+  }
+
+  .menu {
+    gap: 10px;
+    margin: 10px 0;
+  }
+
+  .menu a {
+    padding: 5px 8px;
+    font-size: 0.85em;
+  }
+
+  #adminStats {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-list {
+    grid-template-columns: 1fr;
+  }
+
+  .card {
+    padding: 10px;
+  }
+
+  .overlay-panel {
+    width: 98%;
+    padding: 16px;
+  }
+
+  .popup-section {
+    margin-bottom: 12px;
+  }
+}
     align-self: flex-start;
     margin-bottom: 0;
   }

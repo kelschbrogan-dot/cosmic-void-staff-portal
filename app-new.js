@@ -446,8 +446,9 @@ function renderReviews() {
   const profileEditor = getEl("profileEditorInline");
   if (editToggle && profileEditor) {
     editToggle.addEventListener("click", () => {
-      profileEditor.classList.toggle("hidden");
-      editToggle.classList.toggle("active");
+      const isHidden = profileEditor.classList.toggle("hidden");
+      editToggle.classList.toggle("active", !isHidden);
+      editToggle.textContent = isHidden ? "✏️ Edit Profile" : "✖️ Cancel Edit";
     });
   }
 
@@ -627,8 +628,8 @@ async function openAddStaffModal() {
         discordId,
         name,
         avatarURL,
-        isWebAdmin: role,
-        isActive
+        isActive,
+        isWebAdmin: role
       });
 
       hideSpinner();
