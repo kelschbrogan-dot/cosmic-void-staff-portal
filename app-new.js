@@ -362,8 +362,9 @@ function renderReviews() {
 
   document.querySelectorAll(".save-note-button").forEach(button => {
     button.addEventListener("click", async () => {
+      if (button.disabled) return;
       const targetId = button.dataset.noteId;
-      if (targetId) await saveNoteForTarget(targetId);
+      if (targetId) await saveNoteForTarget(targetId, button);
     });
   });
 
@@ -377,7 +378,8 @@ function renderReviews() {
   });
 }
 
-async function saveNoteForTarget(targetId) {
+async function saveNoteForTarget(targetId, button) {
+  button = button || document.querySelector(`.save-note-button[data-note-id='${targetId}']`);
   const noteTypeElement = document.querySelector(`#reviewsBox select[data-note-id='${targetId}']`);
   const noteTextElement = document.querySelector(`#reviewsBox textarea[data-note-id='${targetId}']`);
   const anonCheckbox = document.querySelector(`#reviewsBox input[data-anon-id='${targetId}']`);
@@ -393,6 +395,11 @@ async function saveNoteForTarget(targetId) {
     noteText = "[ANON]" + noteText;
   }
 
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Saving...";
+  }
+
   showStatus("Saving note...");
   showSpinner();
   const result = await fetchApi("saveNotes", {
@@ -406,6 +413,10 @@ async function saveNoteForTarget(targetId) {
   if (!result) {
     showError("❌ Failed to save note.");
     hideSpinner();
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Add note";
+    }
     return;
   }
 
