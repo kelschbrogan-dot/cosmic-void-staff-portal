@@ -34,12 +34,21 @@ function isTrue(value) {
 }
 
 function getUserRole(user) {
-  if (!user || !user.isWebAdmin) return "MEMBER";
-  const role = String(user.isWebAdmin || "").trim().toUpperCase();
-  if (role === "DEVELOPER" || role === "ADMINISTRATOR" || role === "TRUE") {
-    return role;
+  if (!user) return "MEMBER";
+
+  const raw = user.isWebAdmin;
+
+  // Handle booleans properly
+  if (raw === true) return "ADMIN";
+  if (raw === false || raw === null || raw === undefined) return "MEMBER";
+
+  const role = String(raw).trim().toUpperCase();
+
+  if (["DEVELOPER", "ADMINISTRATOR", "ADMIN", "TRUE"].includes(role)) {
+    return role === "TRUE" ? "ADMIN" : role;
   }
-  return isTrue(user.isWebAdmin) ? "ADMIN" : "MEMBER";
+
+  return "MEMBER";
 }
 
 function canManageMaintenance(user) {
@@ -200,7 +209,7 @@ window.addEventListener("error", event => {
 
 async function fetchApi(action, data = {}) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000);
+  const timeoutId = setTimeout(() => controller.abort(), 20000); // ⬅️ increased timeout
 
   try {
     const response = await fetch(API, {
@@ -211,14 +220,20 @@ async function fetchApi(action, data = {}) {
     });
 
     clearTimeout(timeoutId);
+
     if (!response.ok) {
-      throw new Error(`API returned ${response.status}`);
+      console.error(`❌ API ${action} failed with status`, response.status);
+      return null;
     }
 
-    return await response.json();
+    const json = await response.json();
+    console.log(`✅ API ${action} success:`, json); // ⬅️ DEBUG LOG
+
+    return json;
+
   } catch (error) {
     clearTimeout(timeoutId);
-    console.error(`API ${action} failed`, error);
+    console.error(`❌ API ${action} crashed:`, error);
     return null;
   }
 }
@@ -235,9 +250,10 @@ async function verifyUser() {
   const maintenanceRes = await fetchApi("getMaintenanceMode", {});
 
   if (!tokenRes || !verifyRes) {
-    showDeniedOverlay("MAINTENANCE");
-    return false;
-  }
+  console.error("Verification failed:", { tokenRes, verifyRes, maintenanceRes });
+  showError("❌ Failed to contact server. Try again.");
+  return false;
+}
 
   state.maintenance = maintenanceRes?.maintenance ? true : false;
 
@@ -349,7 +365,7 @@ function renderReviews() {
   const reviewsBox = getEl("reviewsBox");
   if (!reviewsBox) return;
 
-  const activeStaff = state.staff.filter(member => isTrue(member.isActive));
+const activeStaff = state.staff.filter(member => member && isTrue(member.isActive));
   const filteredStaff = activeStaff.filter(member => {
     const completed = getReviewCompletion(member);
     if (state.reviewFilter === "complete") return completed;
