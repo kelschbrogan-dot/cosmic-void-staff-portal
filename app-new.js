@@ -33,6 +33,30 @@ function isTrue(value) {
   return value === true || String(value || "").trim().toLowerCase() === "true";
 }
 
+function getUserRole(user) {
+  if (!user || !user.isWebAdmin) return "MEMBER";
+  const role = String(user.isWebAdmin || "").trim().toUpperCase();
+  if (role === "DEVELOPER" || role === "ADMINISTRATOR" || role === "TRUE") {
+    return role;
+  }
+  return isTrue(user.isWebAdmin) ? "ADMIN" : "MEMBER";
+}
+
+function canManageMaintenance(user) {
+  const role = getUserRole(user);
+  return role === "DEVELOPER" || role === "ADMINISTRATOR";
+}
+
+function canAddAdmins(user) {
+  const role = getUserRole(user);
+  return role === "ADMINISTRATOR";
+}
+
+function isAdmin(user) {
+  const role = getUserRole(user);
+  return role !== "MEMBER";
+}
+
 function mapRatingToNumber(value) {
   const normalized = String(value || "").trim().toLowerCase();
   const lookup = {
@@ -290,21 +314,8 @@ function buildMonthOptions() {
 }
 
 function renderProfileEditor() {
-  const profileEditor = getEl("profileEditor");
-  if (!profileEditor || !state.user) return;
-
-  profileEditor.innerHTML = `
-    <div class="profile-card">
-      <h3>Your profile</h3>
-      <label for="profileNameInput">Display name</label>
-      <input id="profileNameInput" type="text" value="${escapeHtml(state.user.name || "")}" placeholder="Nickname" />
-      <label for="profileAvatarInput">Avatar URL</label>
-      <input id="profileAvatarInput" type="text" value="${escapeHtml(state.user.avatarURL || "")}" placeholder="Avatar image URL" />
-      <button id="profileSaveButton" type="button">Save profile</button>
-    </div>
-  `;
-
-  getEl("profileSaveButton")?.addEventListener("click", saveOwnProfile);
+  // Now handled inline in renderReviews - this function is kept for compatibility but does nothing
+  return;
 }
 
 function renderReviewFilterControls() {
@@ -346,29 +357,36 @@ function renderReviews() {
     return true;
   });
 
-  if (!filteredStaff.length) {
-    reviewsBox.innerHTML = `<div class="card"><p>No staff matching this view.</p></div>`;
-    return;
-  }
+  // Separate user from others and always show user first
+  const currentUser = filteredStaff.find(m => String(m.discordId).trim() === String(userId).trim());
+  const otherStaff = filteredStaff.filter(m => String(m.discordId).trim() !== String(userId).trim());
 
-  reviewsBox.innerHTML = filteredStaff.map(member => {
-    const isYou = String(member.discordId).trim() === String(userId).trim();
+  const userCardHtml = currentUser ? `
+    <div class="card user-card no-click" id="userProfileCard">
+      <img src="${escapeHtml(currentUser.avatarURL || "")}" alt="${escapeHtml(currentUser.name)}">
+      <div class="card-body">
+        <div style="margin-bottom: 12px;">
+          <b style="font-size: 1.1em;">${escapeHtml(currentUser.name)}</b>
+          <p style="opacity:0.6; margin: 4px 0;">This is you! 💜</p>
+        </div>
+        <button type="button" class="edit-profile-toggle" id="editProfileToggle" style="width: 100%; margin-bottom: 12px;">✏️ Edit Profile</button>
+        <div id="profileEditorInline" class="profile-editor-inline hidden" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(148, 163, 184, 0.2);">
+          <label for="profileNameInput">Display name</label>
+          <input id="profileNameInput" type="text" value="${escapeHtml(state.user.name || "")}" placeholder="Nickname" />
+          <label for="profileAvatarInput">Avatar URL</label>
+          <input id="profileAvatarInput" type="text" value="${escapeHtml(state.user.avatarURL || "")}" placeholder="https://..." />
+          <button id="profileSaveButton" type="button" style="width: 100%;">Save Changes</button>
+        </div>
+      </div>
+    </div>
+  ` : "";
+
+  const otherCardsHtml = otherStaff.length ? otherStaff.map(member => {
     const targetId = String(member.discordId).trim();
     const currentRating = state.ratings.find(r => String(r.targetId).trim() === targetId && String(r.reviewerId).trim() === String(userId).trim());
     const selectedRating = currentRating?.rating ? currentRating.rating : "N/A";
     const myNotes = state.notes.filter(note => String(note.targetId).trim() === targetId && String(note.reviewerId).trim() === String(userId).trim());
     const completed = getReviewCompletion(member);
-
-    if (isYou) {
-      return `
-        <div class="card no-click">
-          <img src="${escapeHtml(member.avatarURL || "")}" alt="${escapeHtml(member.name)}">
-          <div class="card-body">
-            <b>${escapeHtml(member.name)}</b>
-            <p style="opacity:0.6;">This is you! 💜</p>
-          </div>
-        </div>`;
-    }
 
     const notesHtml = myNotes.length ? myNotes.map(note => {
       const isAnonymous = String(note.note || "").startsWith("[ANON]");
@@ -386,25 +404,25 @@ function renderReviews() {
       `;
 
     return `
-      <div class="card" data-id="${escapeHtml(targetId)}">
+      <div class="card staff-review-card" data-id="${escapeHtml(targetId)}">
         <img src="${escapeHtml(member.avatarURL || "")}" alt="${escapeHtml(member.name)}">
         <div class="card-body">
           <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
             <b>${escapeHtml(member.name)}</b>
-            <span class="review-status ${completed ? "complete" : "incomplete"}">${completed ? "Complete" : "Incomplete"}</span>
+            <span class="review-status ${completed ? "complete" : "incomplete"}">${completed ? "✓ Complete" : "○ Incomplete"}</span>
           </div>
-          <select data-id="${escapeHtml(targetId)}">
+          <select data-id="${escapeHtml(targetId)}" class="review-rating-select">
             ${["Excels", "On Par", "Meets Standards", "Below Par", "Needs Work", "N/A"].map(option => `
               <option value="${option}" ${option === selectedRating ? "selected" : ""}>${option}</option>
             `).join("")}
           </select>
-          <textarea data-id="${escapeHtml(targetId)}" placeholder="Leave a comment... (Optional)">${escapeHtml(currentRating?.comment || "")}</textarea>
+          <textarea data-id="${escapeHtml(targetId)}" placeholder="Leave a comment... (Optional)" class="review-comment-textarea">${escapeHtml(currentRating?.comment || "")}</textarea>
           <div class="note-summary">
-            <button type="button" class="toggle-notes-header collapsed">
-              <span>My notes</span>
+            <button type="button" class="toggle-notes-header" data-target-id="${escapeHtml(targetId)}">
+              <span>📝 My notes (${myNotes.length})</span>
               <span class="toggle-icon">▼</span>
             </button>
-            <div class="toggle-notes-body hidden">
+            <div class="toggle-notes-body hidden" id="notes-${escapeHtml(targetId)}">
               <div class="note-list">${notesHtml}</div>
               <label for="noteType-${escapeHtml(targetId)}">New note type</label>
               <select id="noteType-${escapeHtml(targetId)}" data-note-id="${escapeHtml(targetId)}">
@@ -419,26 +437,45 @@ function renderReviews() {
           </div>
         </div>
       </div>`;
-  }).join("");
+  }).join("") : `<div class="card"><p>No other staff members.</p></div>`;
 
-  document.querySelectorAll("#reviewsBox select[data-id], #reviewsBox textarea[data-id]").forEach(element => {
+  reviewsBox.innerHTML = userCardHtml + otherCardsHtml;
+
+  // Set up user card toggle
+  const editToggle = getEl("editProfileToggle");
+  const profileEditor = getEl("profileEditorInline");
+  if (editToggle && profileEditor) {
+    editToggle.addEventListener("click", () => {
+      profileEditor.classList.toggle("hidden");
+      editToggle.classList.toggle("active");
+    });
+  }
+
+  getEl("profileSaveButton")?.addEventListener("click", saveOwnProfile);
+
+  // Set up review selects and textareas
+  document.querySelectorAll("#reviewsBox .review-rating-select, #reviewsBox .review-comment-textarea").forEach(element => {
     element.addEventListener("change", saveReviews);
   });
 
+  // Set up notes toggle
+  document.querySelectorAll(".toggle-notes-header").forEach(button => {
+    button.addEventListener("click", (e) => {
+      e.preventDefault();
+      const targetId = button.dataset.targetId;
+      const body = getEl(`notes-${targetId}`);
+      if (!body) return;
+      const isHidden = body.classList.toggle("hidden");
+      button.classList.toggle("open", !isHidden);
+    });
+  });
+
+  // Set up save note buttons
   document.querySelectorAll(".save-note-button").forEach(button => {
     button.addEventListener("click", async () => {
       if (button.disabled) return;
       const targetId = button.dataset.noteId;
       if (targetId) await saveNoteForTarget(targetId, button);
-    });
-  });
-
-  document.querySelectorAll(".toggle-notes-header").forEach(button => {
-    const body = button.closest(".note-summary")?.querySelector(".toggle-notes-body");
-    if (!body) return;
-    button.addEventListener("click", () => {
-      const isHidden = body.classList.toggle("hidden");
-      button.classList.toggle("open", !isHidden);
     });
   });
 }
@@ -484,14 +521,33 @@ async function saveOwnProfile() {
 
 function renderAdminControls() {
   const adminControls = getEl("adminControls");
-  if (!adminControls) return;
+  if (!adminControls || !state.user) return;
 
-  adminControls.innerHTML = `
-    <button id="adminMaintenanceBtn" type="button" class="${state.maintenance ? "active" : ""}">
-      ${state.maintenance ? "🔴 Maintenance: ON" : "⚪ Maintenance: OFF"}
-    </button>
+  const role = getUserRole(state.user);
+  const canMaintain = canManageMaintenance(state.user);
+  const canAddNewAdmins = canAddAdmins(state.user);
+
+  let html = `
     <button id="adminAddStaffBtn" type="button">➕ Add New Staff</button>
   `;
+
+  if (canMaintain) {
+    html += `
+      <button id="adminMaintenanceBtn" type="button" class="${state.maintenance ? "active" : ""}">
+        ${state.maintenance ? "🔴 Maintenance: ON" : "⚪ Maintenance: OFF"}
+      </button>
+    `;
+  }
+
+  if (canAddNewAdmins) {
+    html += `<div style="opacity: 0.7; font-size: 0.9em; padding: 6px 12px;">👤 ADMINISTRATOR</div>`;
+  } else if (role === "DEVELOPER") {
+    html += `<div style="opacity: 0.7; font-size: 0.9em; padding: 6px 12px;">👨‍💻 DEVELOPER</div>`;
+  } else if (role === "ADMIN" || role === "TRUE") {
+    html += `<div style="opacity: 0.7; font-size: 0.9em; padding: 6px 12px;">👮 ADMIN</div>`;
+  }
+
+  adminControls.innerHTML = html;
 
   getEl("adminMaintenanceBtn")?.addEventListener("click", async () => {
     await toggleMaintenance(!state.maintenance);
@@ -534,6 +590,8 @@ async function toggleMaintenance(enabled) {
 }
 
 async function openAddStaffModal() {
+  const canAddAdmins = canAddAdmins(state.user);
+
   showPopup("Add new staff member", `
     <label for="newDiscordId">Discord ID</label>
     <input id="newDiscordId" type="text" placeholder="123456789012345678" />
@@ -541,15 +599,21 @@ async function openAddStaffModal() {
     <input id="newName" type="text" placeholder="Nickname" />
     <label for="newAvatarURL">Avatar URL</label>
     <input id="newAvatarURL" type="text" placeholder="https://..." />
-    <label><input type="checkbox" id="newIsWebAdmin" /> Make admin</label>
-    <label><input type="checkbox" id="newIsActive" checked /> Active</label>
+    <label for="newRole">Role</label>
+    <select id="newRole">
+      <option value="FALSE">Member (No admin)</option>
+      <option value="TRUE">Admin (Regular)</option>
+      ${canAddAdmins ? '<option value="ADMINISTRATOR">Administrator</option>' : ''}
+      ${canAddAdmins ? '<option value="DEVELOPER">Developer</option>' : ''}
+    </select>
+    <label><input type="checkbox" id="newIsActive" checked /> Account Active</label>
   `, [
     { id: "addStaffCancelBtn", text: "Cancel", secondary: true, callback: hidePopup },
     { id: "addStaffSaveBtn", text: "Create Staff", callback: async () => {
       const discordId = getEl("newDiscordId")?.value.trim();
       const name = getEl("newName")?.value.trim();
       const avatarURL = getEl("newAvatarURL")?.value.trim();
-      const isWebAdmin = getEl("newIsWebAdmin")?.checked || false;
+      const role = getEl("newRole")?.value || "FALSE";
       const isActive = getEl("newIsActive")?.checked || false;
 
       if (!discordId || !name) {
@@ -563,7 +627,7 @@ async function openAddStaffModal() {
         discordId,
         name,
         avatarURL,
-        isWebAdmin,
+        isWebAdmin: role,
         isActive
       });
 
@@ -590,7 +654,33 @@ async function openAdminStaffModal(targetId) {
   const positiveCount = notes.filter(note => note.type === "Positive").length;
   const negativeCount = notes.filter(note => note.type === "Negative").length;
   const memberAvgRating = computeAverageRating(ratings);
+  const memberRole = getUserRole(member);
   const statusBadge = isTrue(member.isActive) ? `<span style="color: #10b981; font-weight: bold;">✓ Active</span>` : `<span style="color: #ef4444; font-weight: bold;">✗ Suspended</span>`;
+  const canAddAdmins = canAddAdmins(state.user);
+
+  let roleDisplay = "Member";
+  if (memberRole === "DEVELOPER") roleDisplay = "👨‍💻 Developer";
+  else if (memberRole === "ADMINISTRATOR") roleDisplay = "👤 Administrator";
+  else if (memberRole === "ADMIN" || memberRole === "TRUE") roleDisplay = "👮 Admin";
+
+  // Build notes HTML
+  const notesHtml = notes.length > 0 ? notes.map((note, idx) => {
+    const isAnonymous = String(note.note || "").startsWith("[ANON]");
+    const displayNote = isAnonymous ? String(note.note || "").substring(6).trim() : String(note.note || "").trim();
+    const reviewer = getReviewerName(note.reviewerId);
+    const noteBg = note.type === "Positive" ? "rgba(16, 185, 129, 0.1)" : "rgba(239, 68, 68, 0.1)";
+    const noteBorder = note.type === "Positive" ? "#10b981" : "#ef4444";
+    
+    return `
+      <div style="padding: 12px; background: ${noteBg}; border-left: 3px solid ${noteBorder}; border-radius: 6px; margin-bottom: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <small style="font-weight: 600;"><span style="color: ${note.type === 'Positive' ? '#10b981' : '#ef4444'};">${note.type === "Positive" ? "👍 Positive" : "👎 Negative"}</span></small>
+          <small style="opacity: 0.7;">${isAnonymous ? "Anonymous" : escapeHtml(reviewer)}</small>
+        </div>
+        <p style="margin: 8px 0 0; white-space: pre-wrap; padding-top: 8px; border-top: 1px solid rgba(148, 163, 184, 0.2);">${escapeHtml(displayNote)}</p>
+      </div>
+    `;
+  }).join("") : `<p style="opacity: 0.7; text-align: center; padding: 20px;">No notes yet</p>`;
 
   const html = `
     <div class="popup-section">
@@ -598,7 +688,7 @@ async function openAdminStaffModal(targetId) {
         <div>
           <img src="${escapeHtml(member.avatarURL || '')}" alt="${escapeHtml(member.name)}" style="width: 60px; height: 60px; border-radius: 50%; margin-right: 12px; display: inline-block; vertical-align: middle;">
           <div style="display: inline-block; vertical-align: middle;">
-            <b style="display: block;">${escapeHtml(member.name)}</b>
+            <b style="display: block; font-size: 1.1em;">${escapeHtml(member.name)}</b>
             <small style="opacity: 0.7; display: block;">ID: ${escapeHtml(targetId)}</small>
             <small style="display: block; margin-top: 4px;">${statusBadge}</small>
           </div>
@@ -606,44 +696,61 @@ async function openAdminStaffModal(targetId) {
       </div>
       
       <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(148, 163, 184, 0.2);">
-        <h4 style="margin-top: 0;">Edit Profile</h4>
-        <label for="adminUserName">Display name</label>
-        <input id="adminUserName" type="text" value="${escapeHtml(member.name || "")}" placeholder="Nickname" />
-        <label for="adminUserAvatar">Avatar URL</label>
-        <input id="adminUserAvatar" type="text" value="${escapeHtml(member.avatarURL || "")}" placeholder="https://..." />
-        
-        <h4>Permissions</h4>
-        <label><input type="checkbox" id="adminUserActive" ${isTrue(member.isActive) ? "checked" : ""} /> Account Active (uncheck to suspend)</label>
-        <label><input type="checkbox" id="adminUserWebAdmin" ${isTrue(member.isWebAdmin) ? "checked" : ""} /> Web Admin</label>
-        
-        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px;">
-          <button id="adminSaveUserBtn" type="button" style="flex: 1; min-width: 150px;">💾 Save Changes</button>
-          <button id="adminResetTokenBtn" type="button" style="flex: 1; min-width: 150px;">🔄 Reset Token</button>
+        <h4 style="margin-top: 0;">Performance Metrics</h4>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+          <div style="padding: 12px; background: rgba(59, 130, 246, 0.1); border-radius: 6px;">
+            <small style="opacity: 0.8;">Avg Rating</small>
+            <p style="margin: 4px 0; font-size: 1.3em; color: #3b82f6; font-weight: bold;">${memberAvgRating ? memberAvgRating.toFixed(1) : "N/A"}/5</p>
+          </div>
+          <div style="padding: 12px; background: rgba(147, 112, 219, 0.1); border-radius: 6px;">
+            <small style="opacity: 0.8;">Ratings Received</small>
+            <p style="margin: 4px 0; font-size: 1.3em; color: #9370db; font-weight: bold;">${ratings.length}</p>
+          </div>
+          <div style="padding: 12px; background: rgba(16, 185, 129, 0.1); border-radius: 6px;">
+            <small style="opacity: 0.8;">Positive Notes</small>
+            <p style="margin: 4px 0; font-size: 1.3em; color: #10b981; font-weight: bold;">👍 ${positiveCount}</p>
+          </div>
+          <div style="padding: 12px; background: rgba(239, 68, 68, 0.1); border-radius: 6px;">
+            <small style="opacity: 0.8;">Negative Notes</small>
+            <p style="margin: 4px 0; font-size: 1.3em; color: #ef4444; font-weight: bold;">👎 ${negativeCount}</p>
+          </div>
         </div>
-        <div id="adminStaffTokenResult" style="margin-top: 12px;"></div>
       </div>
     </div>
 
     <div class="popup-section">
-      <h4 style="margin-top: 0;">Performance Metrics</h4>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-        <div style="padding: 12px; background: rgba(59, 130, 246, 0.1); border-radius: 6px;">
-          <small style="opacity: 0.8;">Avg Rating</small>
-          <p style="margin: 4px 0; font-size: 1.3em; color: #3b82f6; font-weight: bold;">${memberAvgRating ? memberAvgRating.toFixed(1) : "N/A"}/5</p>
-        </div>
-        <div style="padding: 12px; background: rgba(147, 112, 219, 0.1); border-radius: 6px;">
-          <small style="opacity: 0.8;">Ratings Received</small>
-          <p style="margin: 4px 0; font-size: 1.3em; color: #9370db; font-weight: bold;">${ratings.length}</p>
-        </div>
-        <div style="padding: 12px; background: rgba(16, 185, 129, 0.1); border-radius: 6px;">
-          <small style="opacity: 0.8;">Positive Notes</small>
-          <p style="margin: 4px 0; font-size: 1.3em; color: #10b981; font-weight: bold;">👍 ${positiveCount}</p>
-        </div>
-        <div style="padding: 12px; background: rgba(239, 68, 68, 0.1); border-radius: 6px;">
-          <small style="opacity: 0.8;">Negative Notes</small>
-          <p style="margin: 4px 0; font-size: 1.3em; color: #ef4444; font-weight: bold;">👎 ${negativeCount}</p>
-        </div>
+      <h4 style="margin-top: 0;">Staff Notes (${notes.length})</h4>
+      <div style="max-height: 300px; overflow-y: auto; margin-bottom: 16px; padding: 8px; background: rgba(15, 23, 42, 0.5); border-radius: 8px;">
+        ${notesHtml}
       </div>
+    </div>
+
+    <div class="popup-section">
+      <h4 style="margin-top: 0;">Account Management</h4>
+      <label for="adminUserName">Display name</label>
+      <input id="adminUserName" type="text" value="${escapeHtml(member.name || "")}" placeholder="Nickname" />
+      <label for="adminUserAvatar">Avatar URL</label>
+      <input id="adminUserAvatar" type="text" value="${escapeHtml(member.avatarURL || "")}" placeholder="https://..." />
+      
+      <h4>Account Settings</h4>
+      <label><input type="checkbox" id="adminUserActive" ${isTrue(member.isActive) ? "checked" : ""} /> Account Active (uncheck to suspend)</label>
+      
+      ${canAddAdmins ? `
+        <h4>Role Assignment</h4>
+        <label for="adminUserRole">Role</label>
+        <select id="adminUserRole">
+          <option value="FALSE" ${memberRole === "MEMBER" ? "selected" : ""}>Member (No admin)</option>
+          <option value="TRUE" ${memberRole === "ADMIN" || memberRole === "TRUE" ? "selected" : ""}>Admin (Regular)</option>
+          <option value="ADMINISTRATOR" ${memberRole === "ADMINISTRATOR" ? "selected" : ""}>Administrator</option>
+          <option value="DEVELOPER" ${memberRole === "DEVELOPER" ? "selected" : ""}>Developer</option>
+        </select>
+      ` : ""}
+      
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px;">
+        <button id="adminSaveUserBtn" type="button" style="flex: 1; min-width: 150px;">💾 Save Changes</button>
+        <button id="adminResetTokenBtn" type="button" style="flex: 1; min-width: 150px;">🔄 Reset Token</button>
+      </div>
+      <div id="adminStaffTokenResult" style="margin-top: 12px;"></div>
     </div>
   `;
 
@@ -655,7 +762,8 @@ async function openAdminStaffModal(targetId) {
     const name = getEl("adminUserName")?.value.trim();
     const avatarURL = getEl("adminUserAvatar")?.value.trim();
     const isActive = getEl("adminUserActive")?.checked || false;
-    const isWebAdmin = getEl("adminUserWebAdmin")?.checked || false;
+    const roleSelect = getEl("adminUserRole");
+    const isWebAdmin = roleSelect ? roleSelect.value : member.isWebAdmin;
 
     if (!name) {
       showStatus("Display name cannot be empty.");
@@ -702,7 +810,7 @@ async function openAdminStaffModal(targetId) {
       tokenResult.innerHTML = `
         <div style="padding: 12px; background: #1f2937; border: 1px solid #10b981; border-radius: 6px; margin-top: 8px;">
           <small style="color: #10b981; display: block; margin-bottom: 8px;">✓ New token generated:</small>
-          <code style="word-break: break-all; user-select: all; font-family: monospace; opacity: 0.8;">${escapeHtml(result.newToken || "")}</code>
+          <code style="word-break: break-all; user-select: all; font-family: monospace; opacity: 0.8; display: block; padding: 8px; background: #0b0f1a; border-radius: 4px;">${escapeHtml(result.newToken || "")}</code>
         </div>
       `;
     }
@@ -801,7 +909,7 @@ async function loadReviews() {
 }
 
 async function loadAdmin() {
-  if (!state.user?.isWebAdmin) {
+  if (!state.user || !isAdmin(state.user)) {
     showError("❌ Admin access required.");
     return;
   }
@@ -829,6 +937,7 @@ function renderAdmin() {
   const adminList = getEl("adminList");
   if (!statsBox || !adminList) return;
 
+  const allStaff = state.staff;
   const activeStaff = state.staff.filter(member => isTrue(member.isActive));
   const ratingCount = state.ratings.length;
   const noteCount = state.notes.length;
@@ -845,7 +954,7 @@ function renderAdmin() {
     </div>
     <div class="stat-card">
       <b>Active staff</b>
-      <span style="font-size: 1.4em; color: #10b981;">${activeStaff.length}</span>
+      <span style="font-size: 1.4em; color: #10b981;">${activeStaff.length}/${allStaff.length}</span>
     </div>
     <div class="stat-card">
       <b>Ratings progress</b>
@@ -864,7 +973,7 @@ function renderAdmin() {
       <span style="font-size: 1.4em; color: #ef4444;">👎 ${negativeNotes}</span>
     </div>`;
 
-  adminList.innerHTML = activeStaff.length ? activeStaff.map(member => {
+  adminList.innerHTML = allStaff.length ? allStaff.map(member => {
     const targetId = String(member.discordId).trim();
     const memberRatings = state.ratings.filter(r => String(r.targetId).trim() === targetId);
     const memberNotes = state.notes.filter(n => String(n.targetId).trim() === targetId);
@@ -873,20 +982,28 @@ function renderAdmin() {
     const positiveCount = memberNotes.filter(n => n.type === "Positive").length;
     const negativeCount = memberNotes.filter(n => n.type === "Negative").length;
     const memberGivenRatings = state.ratings.filter(r => String(r.reviewerId).trim() === targetId);
-    const expectedRatings = activeStaff.length - 1;
+    const activeStaffCount = activeStaff.length;
+    const expectedRatings = activeStaffCount > 1 ? activeStaffCount - 1 : 0;
+    const isActive = isTrue(member.isActive);
+    const statusClass = isActive ? "staff-active" : "staff-suspended";
+    const statusIcon = isActive ? "✓" : "✗";
 
     return `
-      <div class="staff-card" data-id="${escapeHtml(targetId)}">
-        <img src="${escapeHtml(member.avatarURL || '')}" alt="${escapeHtml(member.name)}" style="width: 50px; height: 50px; border-radius: 50%; margin-bottom: 8px;">
+      <div class="staff-card ${statusClass}" data-id="${escapeHtml(targetId)}">
+        <div style="position: relative; width: 50px; height: 50px; margin-bottom: 8px;">
+          <img src="${escapeHtml(member.avatarURL || '')}" alt="${escapeHtml(member.name)}" style="width: 50px; height: 50px; border-radius: 50%;">
+          <span style="position: absolute; top: -4px; right: -4px; background: ${isActive ? '#10b981' : '#ef4444'}; color: white; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75em; border: 2px solid #0b0f1a;">${statusIcon}</span>
+        </div>
         <div class="card-body">
           <b>${escapeHtml(member.name)}</b>
+          <p style="margin: 4px 0; opacity: 0.8; font-size: 0.9em;"><span style="color: ${isActive ? '#10b981' : '#ef4444'};">${isActive ? 'Active' : 'Suspended'}</span></p>
           <p style="margin: 4px 0; opacity: 0.8;">Avg: <span style="color: #3b82f6; font-weight: bold;">${memberAvgRating ? memberAvgRating.toFixed(1) : 'N/A'}</span>/5</p>
-          <p style="margin: 4px 0; opacity: 0.8;"><span style="color: #94a3b8;">${ratingsReceived}</span> ratings received</p>
-          <p style="margin: 4px 0; opacity: 0.8;"><span style="color: #94a3b8;">${memberGivenRatings.length}/${expectedRatings}</span> ratings given</p>
+          <p style="margin: 4px 0; opacity: 0.8;"><span style="color: #94a3b8;">${ratingsReceived}</span> ratings</p>
+          <p style="margin: 4px 0; opacity: 0.8;"><span style="color: #94a3b8;">${memberGivenRatings.length}/${expectedRatings}</span> given</p>
           <p style="margin: 4px 0; opacity: 0.8;">👍${positiveCount} / 👎${negativeCount}</p>
         </div>
       </div>`;
-  }).join("") : `<div class="card"><p>No active staff found.</p></div>`;
+  }).join("") : `<div class="card"><p>No staff found.</p></div>`;
 
   adminList.querySelectorAll(".staff-card").forEach(card => {
     card.addEventListener("click", () => {
