@@ -883,6 +883,12 @@ async function saveOwnProfile() {
     updates: { name, avatarURL }
   });
 
+console.log("Incoming ID:", d.discordId);
+
+for (let i = 1; i < staffData.length; i++) {
+  console.log("Checking row ID:", staffData[i][0]);
+}
+
   if (!result?.success) {
     showError("Failed to save profile.");
     return;
