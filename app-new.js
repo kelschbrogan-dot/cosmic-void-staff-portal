@@ -291,7 +291,11 @@ async function verifyUser() {
   }
 
 state.user = verifiedUser;
-updateNavVisibility();
+
+const adminTab = getEl("adminTab");
+if (adminTab) {
+  adminTab.classList.toggle("hidden", !isAdmin(state.user));
+}
 
 return true;
 
@@ -312,17 +316,6 @@ function showPage(page) {
   if (menu) {
     menu.classList.toggle("hidden", page === "revoked");
   }
-}
-
-function updateNavVisibility() {
-  const adminTab = getEl("adminTab");
-  if (!adminTab) return;
-
-  const shouldShowAdmin = isAdmin(state.user);
-
-  adminTab.classList.toggle("hidden", !shouldShowAdmin);
-  adminTab.style.display = shouldShowAdmin ? "" : "none";
-  adminTab.hidden = !shouldShowAdmin;
 }
 
 
