@@ -552,7 +552,7 @@ async function loadReviews() {
 
   renderReviews();
   hideSpinner();
-  showStatus("Reviews loaded. /n Made with 💜 by Jason");
+  showStatus("Reviews loaded. \n Made with 💜 by Jason");
 }
 
 async function loadAdmin() {
