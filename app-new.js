@@ -618,7 +618,7 @@ async function toggleMaintenance(enabled) {
 }
 
 async function openAddStaffModal() {
-  const canAddAdmins = canAddAdmins(state.user);
+  const canAddNewAdmins = canAddAdmins(state.user);
 
   showPopup("Add new staff member", `
     <label for="newDiscordId">Discord ID</label>
@@ -631,8 +631,8 @@ async function openAddStaffModal() {
     <select id="newRole">
       <option value="FALSE">Member (No admin)</option>
       <option value="TRUE">Admin (Regular)</option>
-      ${canAddAdmins ? '<option value="ADMINISTRATOR">Administrator</option>' : ''}
-      ${canAddAdmins ? '<option value="DEVELOPER">Developer</option>' : ''}
+      ${canAddNewAdmins ? '<option value="ADMINISTRATOR">Administrator</option>' : ''}
+      ${canAddNewAdmins ? '<option value="DEVELOPER">Developer</option>' : ''}
     </select>
     <label><input type="checkbox" id="newIsActive" checked /> Account Active</label>
   `, [
@@ -684,7 +684,7 @@ async function openAdminStaffModal(targetId) {
   const memberAvgRating = computeAverageRating(ratings);
   const memberRole = getUserRole(member);
   const statusBadge = isTrue(member.isActive) ? `<span style="color: #10b981; font-weight: bold;">✓ Active</span>` : `<span style="color: #ef4444; font-weight: bold;">✗ Suspended</span>`;
-  const canAddAdmins = canAddAdmins(state.user);
+  const canAddNewAdmins = canAddAdmins(state.user);
 
   let roleDisplay = "Member";
   if (memberRole === "DEVELOPER") roleDisplay = "👨‍💻 Developer";
@@ -763,7 +763,7 @@ async function openAdminStaffModal(targetId) {
       <h4>Account Settings</h4>
       <label><input type="checkbox" id="adminUserActive" ${isTrue(member.isActive) ? "checked" : ""} /> Account Active (uncheck to suspend)</label>
       
-      ${canAddAdmins ? `
+      ${canAddNewAdmins ? `
         <h4>Role Assignment</h4>
         <label for="adminUserRole">Role</label>
         <select id="adminUserRole">
