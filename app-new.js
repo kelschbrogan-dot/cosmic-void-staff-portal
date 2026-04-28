@@ -208,13 +208,14 @@ async function verifyUser() {
   showStatus("Verifying credentials...");
   const tokenRes = await fetchApi("getToken", { discordId: userId });
   const verifyRes = await fetchApi("verifyUser", { discordId: userId, token });
+  const maintenanceRes = await fetchApi("getMaintenanceMode", {});
 
   if (!tokenRes || !verifyRes) {
     showDeniedOverlay("MAINTENANCE");
     return false;
   }
 
-  state.maintenance = isTrue(tokenRes.maintenance);
+  state.maintenance = maintenanceRes?.maintenance ? true : false;
 
   if (!isTrue(tokenRes.success)) {
     showDeniedOverlay("INVALID_LOGIN");
@@ -482,17 +483,21 @@ async function saveOwnProfile() {
 }
 
 function renderAdminControls() {
-  const maintenanceBtn = getEl("adminMaintenanceBtn");
-  const addStaffBtn = getEl("adminAddStaffBtn");
-  if (maintenanceBtn) {
-    maintenanceBtn.textContent = state.maintenance ? "Maintenance: On" : "Maintenance: Off";
-    maintenanceBtn.onclick = async () => {
-      await toggleMaintenance(!state.maintenance);
-    };
-  }
-  if (addStaffBtn) {
-    addStaffBtn.onclick = openAddStaffModal;
-  }
+  const adminControls = getEl("adminControls");
+  if (!adminControls) return;
+
+  adminControls.innerHTML = `
+    <button id="adminMaintenanceBtn" type="button" class="${state.maintenance ? "active" : ""}">
+      ${state.maintenance ? "🔴 Maintenance: ON" : "⚪ Maintenance: OFF"}
+    </button>
+    <button id="adminAddStaffBtn" type="button">➕ Add New Staff</button>
+  `;
+
+  getEl("adminMaintenanceBtn")?.addEventListener("click", async () => {
+    await toggleMaintenance(!state.maintenance);
+  });
+
+  getEl("adminAddStaffBtn")?.addEventListener("click", openAddStaffModal);
 }
 
 async function toggleMaintenance(enabled) {
@@ -507,9 +512,25 @@ async function toggleMaintenance(enabled) {
   }
 
   state.maintenance = enabled;
-  renderAdminControls();
-  hideSpinner();
-  showStatus(`Maintenance ${enabled ? "enabled" : "disabled"}.`);
+  
+  if (enabled) {
+    // Close out and show maintenance overlay
+    hideSpinner();
+    showPopup("Maintenance Enabled", `<p>Portal is now in maintenance mode. Only Web Admins can access it.</p>`, [
+      { 
+        id: "maintenanceAdminBtn", 
+        text: "Back to Admin Panel", 
+        callback: () => {
+          hidePopup();
+          loadAdmin();
+        } 
+      }
+    ]);
+  } else {
+    renderAdminControls();
+    hideSpinner();
+    showStatus("Maintenance disabled.");
+  }
 }
 
 async function openAddStaffModal() {
@@ -569,31 +590,64 @@ async function openAdminStaffModal(targetId) {
   const positiveCount = notes.filter(note => note.type === "Positive").length;
   const negativeCount = notes.filter(note => note.type === "Negative").length;
   const memberAvgRating = computeAverageRating(ratings);
+  const statusBadge = isTrue(member.isActive) ? `<span style="color: #10b981; font-weight: bold;">✓ Active</span>` : `<span style="color: #ef4444; font-weight: bold;">✗ Suspended</span>`;
 
   const html = `
     <div class="popup-section">
-      <b>Manage staff member</b>
-      <label for="adminUserName">Display name</label>
-      <input id="adminUserName" type="text" value="${escapeHtml(member.name || "")}" />
-      <label for="adminUserAvatar">Avatar URL</label>
-      <input id="adminUserAvatar" type="text" value="${escapeHtml(member.avatarURL || "")}" />
-      <label><input type="checkbox" id="adminUserActive" ${isTrue(member.isActive) ? "checked" : ""} /> Active</label>
-      <label><input type="checkbox" id="adminUserWebAdmin" ${isTrue(member.isWebAdmin) ? "checked" : ""} /> Web admin</label>
-      <div style="margin-top: 12px; display:flex; gap:12px; flex-wrap:wrap;">
-        <button id="adminSaveUserBtn" type="button">Save changes</button>
-        <button id="adminResetTokenBtn" type="button">Reset token</button>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div>
+          <img src="${escapeHtml(member.avatarURL || '')}" alt="${escapeHtml(member.name)}" style="width: 60px; height: 60px; border-radius: 50%; margin-right: 12px; display: inline-block; vertical-align: middle;">
+          <div style="display: inline-block; vertical-align: middle;">
+            <b style="display: block;">${escapeHtml(member.name)}</b>
+            <small style="opacity: 0.7; display: block;">ID: ${escapeHtml(targetId)}</small>
+            <small style="display: block; margin-top: 4px;">${statusBadge}</small>
+          </div>
+        </div>
       </div>
-      <div id="adminStaffTokenResult" style="margin-top: 12px;"></div>
+      
+      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(148, 163, 184, 0.2);">
+        <h4 style="margin-top: 0;">Edit Profile</h4>
+        <label for="adminUserName">Display name</label>
+        <input id="adminUserName" type="text" value="${escapeHtml(member.name || "")}" placeholder="Nickname" />
+        <label for="adminUserAvatar">Avatar URL</label>
+        <input id="adminUserAvatar" type="text" value="${escapeHtml(member.avatarURL || "")}" placeholder="https://..." />
+        
+        <h4>Permissions</h4>
+        <label><input type="checkbox" id="adminUserActive" ${isTrue(member.isActive) ? "checked" : ""} /> Account Active (uncheck to suspend)</label>
+        <label><input type="checkbox" id="adminUserWebAdmin" ${isTrue(member.isWebAdmin) ? "checked" : ""} /> Web Admin</label>
+        
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px;">
+          <button id="adminSaveUserBtn" type="button" style="flex: 1; min-width: 150px;">💾 Save Changes</button>
+          <button id="adminResetTokenBtn" type="button" style="flex: 1; min-width: 150px;">🔄 Reset Token</button>
+        </div>
+        <div id="adminStaffTokenResult" style="margin-top: 12px;"></div>
+      </div>
     </div>
+
     <div class="popup-section">
-      <h3>Performance snapshot</h3>
-      <p><strong>Ratings received:</strong> ${ratings.length}</p>
-      <p><strong>Avg rating:</strong> ${memberAvgRating ? memberAvgRating.toFixed(1) : "N/A"}</p>
-      <p><strong>Notes:</strong> ${notes.length} (${positiveCount} positive, ${negativeCount} negative)</p>
+      <h4 style="margin-top: 0;">Performance Metrics</h4>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div style="padding: 12px; background: rgba(59, 130, 246, 0.1); border-radius: 6px;">
+          <small style="opacity: 0.8;">Avg Rating</small>
+          <p style="margin: 4px 0; font-size: 1.3em; color: #3b82f6; font-weight: bold;">${memberAvgRating ? memberAvgRating.toFixed(1) : "N/A"}/5</p>
+        </div>
+        <div style="padding: 12px; background: rgba(147, 112, 219, 0.1); border-radius: 6px;">
+          <small style="opacity: 0.8;">Ratings Received</small>
+          <p style="margin: 4px 0; font-size: 1.3em; color: #9370db; font-weight: bold;">${ratings.length}</p>
+        </div>
+        <div style="padding: 12px; background: rgba(16, 185, 129, 0.1); border-radius: 6px;">
+          <small style="opacity: 0.8;">Positive Notes</small>
+          <p style="margin: 4px 0; font-size: 1.3em; color: #10b981; font-weight: bold;">👍 ${positiveCount}</p>
+        </div>
+        <div style="padding: 12px; background: rgba(239, 68, 68, 0.1); border-radius: 6px;">
+          <small style="opacity: 0.8;">Negative Notes</small>
+          <p style="margin: 4px 0; font-size: 1.3em; color: #ef4444; font-weight: bold;">👎 ${negativeCount}</p>
+        </div>
+      </div>
     </div>
   `;
 
-  showPopup(`Manage ${member.name}`, html, [
+  showPopup(`Manage: ${member.name}`, html, [
     { id: "adminCloseUserBtn", text: "Close", secondary: true, callback: hidePopup }
   ]);
 
@@ -602,6 +656,11 @@ async function openAdminStaffModal(targetId) {
     const avatarURL = getEl("adminUserAvatar")?.value.trim();
     const isActive = getEl("adminUserActive")?.checked || false;
     const isWebAdmin = getEl("adminUserWebAdmin")?.checked || false;
+
+    if (!name) {
+      showStatus("Display name cannot be empty.");
+      return;
+    }
 
     showStatus("Saving staff member...");
     showSpinner();
@@ -620,10 +679,14 @@ async function openAdminStaffModal(targetId) {
     hidePopup();
     await refreshStaff();
     await loadAdmin();
-    showStatus("Staff member updated.");
+    showStatus(`${isActive ? "✓" : "✗"} ${name} has been updated.`);
   });
 
   getEl("adminResetTokenBtn")?.addEventListener("click", async () => {
+    if (!confirm(`Reset token for ${member.name}? They will need a new login link.`)) {
+      return;
+    }
+
     showStatus("Resetting token...");
     showSpinner();
 
@@ -636,11 +699,16 @@ async function openAdminStaffModal(targetId) {
 
     const tokenResult = getEl("adminStaffTokenResult");
     if (tokenResult) {
-      tokenResult.innerHTML = `<small style="color:#a7f3d0;">New token: <code>${escapeHtml(result.newToken || "")}</code></small>`;
+      tokenResult.innerHTML = `
+        <div style="padding: 12px; background: #1f2937; border: 1px solid #10b981; border-radius: 6px; margin-top: 8px;">
+          <small style="color: #10b981; display: block; margin-bottom: 8px;">✓ New token generated:</small>
+          <code style="word-break: break-all; user-select: all; font-family: monospace; opacity: 0.8;">${escapeHtml(result.newToken || "")}</code>
+        </div>
+      `;
     }
 
     await refreshStaff();
-    showStatus("Token reset successfully.");
+    showStatus("✓ Token reset successfully.");
   });
 }
 

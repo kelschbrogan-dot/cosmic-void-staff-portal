@@ -236,6 +236,135 @@ function getDashboard(d){
   return json(Object.values(map));
 }
 
+// ---------------- TOKEN GENERATION ----------------
+
+function generateRandomToken(length = 32) {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let token = "";
+  for (let i = 0; i < length; i++) {
+    token += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return token;
+}
+
+// ---------------- ADMIN FUNCTIONS ----------------
+
+function addStaff(d) {
+  if (!d.discordId || !d.name) {
+    return json({ success: false, error: "MISSING_FIELDS" });
+  }
+
+  const newToken = generateRandomToken(32);
+  const staffData = sheet(STAFF_TAB).getDataRange().getValues();
+  
+  // Check if user already exists
+  for (let i = 1; i < staffData.length; i++) {
+    if (normalizeId(staffData[i][0]) === normalizeId(d.discordId)) {
+      return json({ success: false, error: "USER_EXISTS" });
+    }
+  }
+
+  sheet(STAFF_TAB).appendRow([
+    d.discordId,
+    d.name,
+    d.avatarURL || "",
+    newToken,
+    isTrue(d.isActive) ? true : false,
+    isTrue(d.isWebAdmin) ? true : false
+  ]);
+
+  return json({ success: true, newToken });
+}
+
+function updateStaff(d) {
+  if (!d.discordId) {
+    return json({ success: false, error: "MISSING_DISCORD_ID" });
+  }
+
+  const staffData = sheet(STAFF_TAB).getDataRange().getValues();
+  const headers = staffData[0];
+  let found = false;
+
+  for (let i = 1; i < staffData.length; i++) {
+    if (normalizeId(staffData[i][0]) === normalizeId(d.discordId)) {
+      const updates = d.updates || {};
+
+      // Update name
+      if (updates.name !== undefined) {
+        const nameIdx = headers.indexOf("name");
+        if (nameIdx >= 0) {
+          sheet(STAFF_TAB).getRange(i + 1, nameIdx + 1).setValue(updates.name);
+        }
+      }
+
+      // Update avatarURL
+      if (updates.avatarURL !== undefined) {
+        const avatarIdx = headers.indexOf("avatarURL");
+        if (avatarIdx >= 0) {
+          sheet(STAFF_TAB).getRange(i + 1, avatarIdx + 1).setValue(updates.avatarURL);
+        }
+      }
+
+      // Update isActive
+      if (updates.isActive !== undefined) {
+        const activeIdx = headers.indexOf("isActive");
+        if (activeIdx >= 0) {
+          sheet(STAFF_TAB).getRange(i + 1, activeIdx + 1).setValue(isTrue(updates.isActive) ? true : false);
+        }
+      }
+
+      // Update isWebAdmin
+      if (updates.isWebAdmin !== undefined) {
+        const adminIdx = headers.indexOf("isWebAdmin");
+        if (adminIdx >= 0) {
+          sheet(STAFF_TAB).getRange(i + 1, adminIdx + 1).setValue(isTrue(updates.isWebAdmin) ? true : false);
+        }
+      }
+
+      found = true;
+      break;
+    }
+  }
+
+  return json({ success: found, error: found ? null : "USER_NOT_FOUND" });
+}
+
+function resetStaffToken(d) {
+  if (!d.discordId) {
+    return json({ success: false, error: "MISSING_DISCORD_ID" });
+  }
+
+  const newToken = generateRandomToken(32);
+  const staffData = sheet(STAFF_TAB).getDataRange().getValues();
+  const headers = staffData[0];
+  let found = false;
+
+  for (let i = 1; i < staffData.length; i++) {
+    if (normalizeId(staffData[i][0]) === normalizeId(d.discordId)) {
+      const tokenIdx = headers.indexOf("secretToken");
+      if (tokenIdx >= 0) {
+        sheet(STAFF_TAB).getRange(i + 1, tokenIdx + 1).setValue(newToken);
+        found = true;
+      }
+      break;
+    }
+  }
+
+  return json({ success: found, newToken, error: found ? null : "USER_NOT_FOUND" });
+}
+
+function setMaintenance(d) {
+  const scriptProperties = PropertiesService.getScriptProperties();
+  scriptProperties.setProperty("MAINTENANCE_MODE", isTrue(d.enabled) ? "true" : "false");
+  return json({ success: true });
+}
+
+function getMaintenanceMode() {
+  const scriptProperties = PropertiesService.getScriptProperties();
+  const mode = scriptProperties.getProperty("MAINTENANCE_MODE") || "false";
+  return json({ maintenance: isTrue(mode) });
+}
+
 // ---------------- ROUTER ----------------
 
 function doPost(e){
@@ -266,6 +395,21 @@ function doPost(e){
 
     case "getDashboard":
       return getDashboard(d);
+
+    case "addStaff":
+      return addStaff(d);
+
+    case "updateStaff":
+      return updateStaff(d);
+
+    case "resetStaffToken":
+      return resetStaffToken(d);
+
+    case "setMaintenance":
+      return setMaintenance(d);
+
+    case "getMaintenanceMode":
+      return getMaintenanceMode(d);
 
     default:
       return json({ error:"INVALID_ACTION" });

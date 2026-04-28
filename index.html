@@ -37,11 +37,12 @@
       <div class="page-header">
         <h2>Admin Ratings Dashboard</h2>
       </div>
-      <div class="admin-controls">
-        <label for="adminMonthSelect">Month</label>
-        <select id="adminMonthSelect"></select>
-        <button id="adminMaintenanceBtn" type="button">Maintenance: Off</button>
-        <button id="adminAddStaffBtn" type="button">Add Staff</button>
+      <div class="admin-toolbar">
+        <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+          <label for="adminMonthSelect">Month:</label>
+          <select id="adminMonthSelect"></select>
+        </div>
+        <div id="adminControls" class="admin-controls"></div>
       </div>
       <div id="adminStats"></div>
       <div id="adminList" class="admin-list"></div>

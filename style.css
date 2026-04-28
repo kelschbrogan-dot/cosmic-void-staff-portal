@@ -23,10 +23,19 @@ textarea {
 
 .review-filter-controls,
 .profile-editor,
-.admin-controls button {
+.admin-controls {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.admin-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
 }
 
 .review-filter-controls button,
@@ -34,12 +43,23 @@ textarea {
   background: #1f2937;
   color: #e2e8f0;
   border: 1px solid rgba(148, 163, 184, 0.3);
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.review-filter-controls button:hover,
+.admin-controls button:hover {
+  background: #374151;
+  border-color: rgba(148, 163, 184, 0.5);
 }
 
 .review-filter-controls button.active,
 .admin-controls button.active {
   background: #2563eb;
   color: white;
+  border-color: #2563eb;
 }
 
 .review-status {
