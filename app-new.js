@@ -293,15 +293,15 @@ async function verifyUser() {
 state.user = verifiedUser;
 
 const adminTab = getEl("adminTab");
-if (adminTab) {
-  adminTab.classList.toggle("hidden", !isAdmin(state.user));
+if (adminTab && isAdmin(state.user)) {
+  adminTab.classList.remove("hidden");
 }
 
 return true;
-
-
+}
 
 function showPage(page) {
+
   document.querySelectorAll("[data-page]").forEach(link => {
     link.classList.toggle("active", link.dataset.page === page);
   });
