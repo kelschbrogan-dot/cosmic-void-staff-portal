@@ -327,7 +327,7 @@ function renderReviews() {
               <option value="${option}" ${option === selectedRating ? "selected" : ""}>${option}</option>
             `).join("")}
           </select>
-          <textarea data-id="${targetId}" placeholder="Leave a comment...">${currentRating?.comment || ""}</textarea>
+          <textarea data-id="${targetId}" placeholder="Leave a comment... (Optional)">${currentRating?.comment || ""}</textarea>
           <div class="note-summary">
             <button type="button" class="toggle-notes-header collapsed">
               <span>My notes</span>
