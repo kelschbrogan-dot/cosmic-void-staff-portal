@@ -303,7 +303,7 @@ function renderReviews() {
           <img src="${member.avatarURL || ""}" alt="${member.name}">
           <div class="card-body">
             <b>${member.name}</b>
-            <p style="opacity:0.6;">This is you</p>
+            <p style="opacity:0.6;">This is you! 💜</p>
           </div>
         </div>`;
     }
@@ -552,7 +552,7 @@ async function loadReviews() {
 
   renderReviews();
   hideSpinner();
-  showStatus("Reviews loaded.");
+  showStatus("Reviews loaded. /n Made with 💜 by Jason");
 }
 
 async function loadAdmin() {
