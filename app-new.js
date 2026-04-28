@@ -308,12 +308,18 @@ function renderReviews() {
         </div>`;
     }
 
-    const notesHtml = myNotes.length ? myNotes.map(note => `
-        <div class="note-item">
-          <small>${note.type === "Negative" ? "👎" : "👍"} ${note.type}</small>
-          <p>${String(note.note || "").trim() || "No note content."}</p>
+    const notesHtml = myNotes.length ? myNotes.map(note => {
+      const isAnonymous = String(note.note || "").startsWith("[ANON]");
+      const displayType = isAnonymous ? "Anonymous" : note.type;
+      const displayNote = isAnonymous ? String(note.note || "").substring(6).trim() : String(note.note || "").trim();
+      const anonClass = isAnonymous ? " anonymous-note" : "";
+      return `
+        <div class="note-item${anonClass}">
+          <small>${note.type === "Negative" ? "👎" : "👍"} ${displayType}</small>
+          <p>${displayNote || "No note content."}</p>
         </div>
-      `).join("") : `
+      `;
+    }).join("") : `
         <div class="note-item"><p style="opacity: 0.7;">No notes yet.</p></div>
       `;
 
@@ -406,6 +412,7 @@ async function saveNoteForTarget(targetId) {
   const notes = await fetchApi("getNotes", { month: state.month });
   state.notes = Array.isArray(notes) ? notes : state.notes;
   if (noteTextElement) noteTextElement.value = "";
+  if (anonCheckbox) anonCheckbox.checked = false;
   renderReviews();
   hideSpinner();
   showStatus("Note saved.");

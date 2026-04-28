@@ -190,7 +190,6 @@ function getNotes(d) {
 }
 
 function saveNotes(d) {
-  const rows = sheet(NOTES_TAB).getDataRange().getValues();
   const month = normalizeMonth(d.month);
   const reviewerId = normalizeId(d.reviewerId);
   const targetId = normalizeId(d.targetId);
@@ -198,32 +197,14 @@ function saveNotes(d) {
   const note = String(d.note || "").trim();
   const updatedAt = new Date();
 
-  let found = false;
-
-  for (let i = 1; i < rows.length; i++) {
-    if (
-      normalizeMonth(rows[i][0]) === month &&
-      normalizeId(rows[i][1]) === reviewerId &&
-      normalizeId(rows[i][2]) === targetId
-    ) {
-      sheet(NOTES_TAB).getRange(i + 1, 4).setValue(type);
-      sheet(NOTES_TAB).getRange(i + 1, 5).setValue(note);
-      sheet(NOTES_TAB).getRange(i + 1, 6).setValue(updatedAt);
-      found = true;
-      break;
-    }
-  }
-
-  if (!found) {
-    sheet(NOTES_TAB).appendRow([
-      month,
-      reviewerId,
-      targetId,
-      type,
-      note,
-      updatedAt
-    ]);
-  }
+  sheet(NOTES_TAB).appendRow([
+    month,
+    reviewerId,
+    targetId,
+    type,
+    note,
+    updatedAt
+  ]);
 
   return json({ success: true });
 }
