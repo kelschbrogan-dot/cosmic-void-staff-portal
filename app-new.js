@@ -155,7 +155,7 @@ function getFeaturedEmoji(member) {
   return normalizeFeaturedEmoji(member?.featuredEmoji) || "\u{1F31F}";
 }
 
-function buildFeaturedBadgeHtml(member, label = "Staff of the Month") {
+function buildFeaturedBadgeHtml(member, label = "Pinned") {
   if (!isFeaturedStaff(member)) return "";
   return `<span class="featured-badge">${escapeHtml(getFeaturedEmoji(member))} ${escapeHtml(label)}</span>`;
 }
