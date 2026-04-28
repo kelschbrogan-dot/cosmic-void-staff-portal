@@ -24,8 +24,12 @@
 
     <div id="reviewsPage" class="page">
       <div class="page-header">
-        <h2>Monthly Ratings</h2>
+        <div>
+          <h2>Monthly Ratings</h2>
+          <p class="page-subtitle">Track progress, leave reviews, and keep your notes in one place.</p>
+        </div>
       </div>
+      <div id="reviewsSummary" class="reviews-summary"></div>
       <div id="reviewsToolbar" class="reviews-toolbar">
         <div id="profileEditor" class="profile-editor"></div>
         <div id="reviewFilterControls" class="review-filter-controls"></div>
@@ -35,11 +39,14 @@
 
     <div id="adminPage" class="page hidden">
       <div class="page-header">
-        <h2>Admin Ratings Dashboard</h2>
+        <div>
+          <h2>Admin Ratings Dashboard</h2>
+          <p class="page-subtitle">Review staff activity, pinned staff notes, and account settings.</p>
+        </div>
       </div>
       <div class="admin-toolbar">
-        <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-          <label for="adminMonthSelect">Month:</label>
+        <div class="admin-month-picker">
+          <label for="adminMonthSelect">Month</label>
           <select id="adminMonthSelect"></select>
         </div>
         <div id="adminControls" class="admin-controls"></div>
@@ -59,13 +66,13 @@
 
   <div id="popupOverlay" class="overlay hidden" aria-hidden="true">
     <div class="overlay-panel">
-      <button id="popupClose" class="overlay-close" aria-label="Close popup">✕</button>
+      <button id="popupClose" class="overlay-close" aria-label="Close popup">X</button>
       <h2 id="popupTitle"></h2>
       <div id="popupBody"></div>
       <div id="popupActions" class="overlay-actions"></div>
     </div>
   </div>
 
-  <script src="app-new.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
