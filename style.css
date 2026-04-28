@@ -295,30 +295,101 @@ h1 {
   }
 }
 
+input[type="text"],
+input[type="email"],
+input[type="password"],
 select,
 textarea {
   width: 100%;
-  margin-top: 5px;
-  padding: 8px;
+  max-width: 100%;
+  margin-top: 6px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
   border-radius: 6px;
   border: 1px solid rgba(31, 41, 55, 0.5);
   background: #1f2937;
   color: white;
-  margin-bottom: 12px;
+  font-size: 14px;
   transition: all 0.2s ease;
+  box-sizing: border-box;
 }
 
+input[type="text"],
+input[type="email"],
+input[type="password"] {
+  height: auto;
+  min-height: 40px;
+}
+
+select {
+  cursor: pointer;
+  min-height: 40px;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
 select:focus,
 textarea:focus {
   outline: 2px solid #3b82f6;
   outline-offset: -2px;
-  background: #273449;
+  background-color: #273449;
   border-color: #3b82f6;
+}
+
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 20px;
+  height: 20px;
+  margin: 0 8px 0 0;
+  border: 2px solid #3b82f6;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  vertical-align: middle;
+  accent-color: #3b82f6;
+}
+
+input[type="checkbox"]:hover {
+  border-color: #60a5fa;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
+}
+
+input[type="checkbox"]:checked {
+  background: #3b82f6;
+  border-color: #3b82f6;
+}
+
+input[type="checkbox"]:checked::after {
+  content: "✓";
+  color: white;
+  font-weight: bold;
 }
 
 label {
   display: block;
   margin-top: 14px;
+  font-size: 14px;
+}
+
+label input[type="checkbox"] {
+  margin-top: 0;
+}
+
+label:has(> input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  cursor: pointer;
 }
 
 button {
@@ -395,6 +466,8 @@ button:hover {
   padding: 24px;
   box-shadow: 0 24px 80px rgba(0,0,0,0.35);
   position: relative;
+  max-height: 90vh;
+  overflow-y: auto;
 }
 
 .overlay-close {
@@ -439,6 +512,29 @@ button:hover {
 
 .popup-section h3 {
   margin: 0 0 10px;
+}
+
+.popup-section h4 {
+  margin: 16px 0 10px 0;
+  font-size: 1.05em;
+}
+
+.popup-section input[type="text"],
+.popup-section input[type="email"],
+.popup-section input[type="password"],
+.popup-section select,
+.popup-section textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.popup-section label {
+  margin-top: 12px;
+  display: block;
+}
+
+.popup-section label:first-of-type {
+  margin-top: 0;
 }
 
 .popup-section .review-card,
@@ -842,15 +938,39 @@ button:hover {
   select,
   textarea {
     font-size: 16px; /* Prevents zoom on iOS */
+    padding: 12px;
+    min-height: 44px; /* Touch target size */
   }
 
-  input {
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  select {
     font-size: 16px; /* Prevents zoom on iOS */
+    padding: 12px;
+    min-height: 44px; /* Touch target size */
+    margin-bottom: 12px;
+  }
+
+  textarea {
+    font-size: 16px; /* Prevents zoom on iOS */
+    min-height: 120px;
+  }
+
+  input[type="checkbox"] {
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+  }
+
+  label:has(> input[type="checkbox"]) {
+    padding: 8px 0;
   }
 
   button {
     font-size: 16px;
     min-height: 44px; /* Touch target size */
+    padding: 12px;
   }
 
   .edit-profile-toggle {
