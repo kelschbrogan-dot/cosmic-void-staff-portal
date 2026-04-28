@@ -129,7 +129,7 @@ function isAdmin(user) {
 
 function canManageMaintenance(user) {
   const role = getUserRole(user);
-  return role === "developer" || role === "ADMINISTRATOR";
+  return role === "Developer" || role === "Administrator";
 }
 
 function canAddAdmins(user) {
