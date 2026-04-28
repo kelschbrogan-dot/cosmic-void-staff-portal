@@ -372,11 +372,47 @@ button:hover {
   white-space: pre-wrap;
 }
 
-@media (max-width: 640px) {
-  .card,
-  .review-card {
-    flex-direction: column;
-    align-items: stretch;
+.toggle-notes-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 12px 14px;
+  background: #111827;
+  border-radius: 12px;
+  border: 1px solid #1f2937;
+  color: white;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.toggle-notes-header .toggle-icon {
+  transition: transform 0.2s ease;
+}
+
+.toggle-notes-header.open .toggle-icon {
+  transform: rotate(180deg);
+}
+
+.toggle-notes-body {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.toggle-notes-body.hidden {
+  display: none;
+}
+
+.average-rating {
+  margin: 0 0 18px;
+  color: #f8fafc;
+}
+
+.average-rating strong {
+  color: #3b82f6;
+}
+
   }
 
   .card img {

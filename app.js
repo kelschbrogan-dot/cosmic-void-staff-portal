@@ -12,6 +12,29 @@ function isTrue(value) {
   return value === true || String(value).trim().toLowerCase() === "true";
 }
 
+function mapRatingToNumber(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return null;
+  const lookup = {
+    excels: 5,
+    "on par": 4,
+    "meets standards": 3,
+    "below par": 2,
+    "needs work": 1
+  };
+  if (lookup[normalized] !== undefined) return lookup[normalized];
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function computeAverageRating(ratings = []) {
+  const numbers = Array.isArray(ratings)
+    ? ratings.map(r => mapRatingToNumber(r.rating)).filter(n => typeof n === "number")
+    : [];
+  if (!numbers.length) return null;
+  return numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
+}
+
 function hideSpinner() {
   const spinner = document.getElementById("loadingSpinner");
   if (spinner) spinner.style.display = "none";
@@ -301,7 +324,7 @@ async function expandStaffCard(targetId, cardEl) {
     <div style="display: flex; gap: 10px; margin-bottom: 14px;">
       <button class="details-tab-button active" data-tab="Ratings">Ratings</button>
       <button class="details-tab-button" data-tab="Notes">Notes</button>
-      <button type="button" style="margin-left: auto; background: #3b82f6; padding: 6px 10px; border: none; border-radius: 6px; color: white; cursor: pointer; font-size: 0.9rem;">🔄</button>
+      <button type="button" class="refresh-notes" style="margin-left: auto; background: #3b82f6; padding: 6px 10px; border: none; border-radius: 6px; color: white; cursor: pointer; font-size: 0.9rem;">🔄</button>
     </div>
     <div class="details-content" data-tab="Ratings">
       ${ratings.length ? ratings.map(r => {
@@ -320,26 +343,33 @@ async function expandStaffCard(targetId, cardEl) {
       }).join("") || "<p>You haven't rated yet.</p>"}
     </div>
     <div class="details-content" data-tab="Notes" style="display: none;">
-      <label for="noteType${targetId}"><b>Note type</b></label>
-      <select id="noteType${targetId}">
-        <option value="Positive">Positive 👍</option>
-        <option value="Negative">Negative 👎</option>
-      </select>
-      <textarea id="noteInput${targetId}" rows="4"></textarea>
-      <button id="saveNoteBtn${targetId}" style="margin-top: 10px;">Save Note</button>
-      
-      <div style="margin-top: 20px;">
-        <b>All notes</b>
-        ${notes.length ? notes.map(note => {
-          const reviewer = STAFF_CACHE.find(s => String(s.discordId).trim() === String(note.reviewerId).trim());
-          const icon = note.type === "Negative" ? "👎" : "👍";
-          return `
-            <div class="note-item">
-              <small>${icon} ${reviewer?.name || note.reviewerId}</small>
-              <p>${String(note.note || "").trim() || "No note."}</p>
-            </div>
-          `;
-        }).join("") : "<p>No notes yet.</p>"}
+      <div class="note-toggle-section">
+        <button type="button" class="toggle-notes-header collapsed">
+          <span>My notes</span>
+          <span class="toggle-icon">▼</span>
+        </button>
+        <div class="toggle-notes-body hidden">
+          <label for="noteType${targetId}"><b>Note type</b></label>
+          <select id="noteType${targetId}">
+            <option value="Positive">Positive 👍</option>
+            <option value="Negative">Negative 👎</option>
+          </select>
+          <textarea id="noteInput${targetId}" rows="4" placeholder="Add a note..."></textarea>
+          <button id="saveNoteBtn${targetId}" class="save-note-action" style="margin-top: 10px;">Save Note</button>
+          <div style="margin-top: 20px;">
+            <b>All notes</b>
+            ${notes.length ? notes.map(note => {
+              const reviewer = STAFF_CACHE.find(s => String(s.discordId).trim() === String(note.reviewerId).trim());
+              const icon = note.type === "Negative" ? "👎" : "👍";
+              return `
+                <div class="note-item">
+                  <small>${icon} ${reviewer?.name || note.reviewerId}</small>
+                  <p>${String(note.note || "").trim() || "No note."}</p>
+                </div>
+              `;
+            }).join("") : "<p>No notes yet.</p>"}
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -361,6 +391,15 @@ async function expandStaffCard(targetId, cardEl) {
     });
   });
 
+  const toggleButton = detailsDiv.querySelector(".toggle-notes-header");
+  const toggleBody = detailsDiv.querySelector(".toggle-notes-body");
+  if (toggleButton && toggleBody) {
+    toggleButton.addEventListener("click", () => {
+      const isCollapsed = toggleBody.classList.toggle("hidden");
+      toggleButton.classList.toggle("open", !isCollapsed);
+    });
+  }
+
   detailsDiv.querySelector(`#saveNoteBtn${targetId}`)?.addEventListener("click", async () => {
     const noteType = detailsDiv.querySelector(`#noteType${targetId}`)?.value || "Positive";
     const noteText = detailsDiv.querySelector(`#noteInput${targetId}`)?.value || "";
@@ -377,7 +416,7 @@ async function expandStaffCard(targetId, cardEl) {
     await expandStaffCard(targetId, cardEl);
   });
 
-  detailsDiv.querySelector("button:last-of-type")?.addEventListener("click", async () => {
+  detailsDiv.querySelector(".refresh-notes")?.addEventListener("click", async () => {
     NOTES_CACHE = null;
     await expandStaffCard(targetId, cardEl);
   });
@@ -437,6 +476,17 @@ async function loadAdmin() {
   }
 
   const staffRows = STAFF_CACHE.filter(s => isTrue(s.isActive));
+  const averageRating = computeAverageRating(ratings);
+  const statsBox = document.getElementById("adminStats");
+
+  if (statsBox) {
+    statsBox.innerHTML = `
+      <div class="stat-card">
+        <b>General rating</b>
+        <span>${averageRating ? `${averageRating.toFixed(1)} / 5` : "N/A"}</span>
+      </div>
+    `;
+  }
 
   if (listBox) {
     listBox.innerHTML = staffRows.length ? staffRows.map(s => {
@@ -485,7 +535,7 @@ async function expandAdminCard(targetId, cardEl, monthValue = month()) {
     <div style="display: flex; gap: 10px; margin-bottom: 14px;">
       <button class="details-tab-button active" data-tab="Ratings">Ratings</button>
       <button class="details-tab-button" data-tab="Notes">Notes</button>
-      <button type="button" style="margin-left: auto; background: #3b82f6; padding: 6px 10px; border: none; border-radius: 6px; color: white; cursor: pointer; font-size: 0.9rem;">🔄</button>
+      <button type="button" class="refresh-notes" style="margin-left: auto; background: #3b82f6; padding: 6px 10px; border: none; border-radius: 6px; color: white; cursor: pointer; font-size: 0.9rem;">🔄</button>
     </div>
     <div class="details-content" data-tab="Ratings">
       ${ratings.length ? ratings.map(r => {
@@ -501,26 +551,33 @@ async function expandAdminCard(targetId, cardEl, monthValue = month()) {
       }).join("") : "<p>No ratings yet.</p>"}
     </div>
     <div class="details-content" data-tab="Notes" style="display: none;">
-      <label for="noteType${targetId}"><b>Note type</b></label>
-      <select id="noteType${targetId}">
-        <option value="Positive">Positive 👍</option>
-        <option value="Negative">Negative 👎</option>
-      </select>
-      <textarea id="noteInput${targetId}" rows="4"></textarea>
-      <button id="saveAdminNoteBtn${targetId}" style="margin-top: 10px;">Save Note</button>
-      
-      <div style="margin-top: 20px;">
-        <b>All notes</b>
-        ${notes.length ? notes.map(note => {
-          const reviewer = STAFF_CACHE.find(s => String(s.discordId).trim() === String(note.reviewerId).trim());
-          const icon = note.type === "Negative" ? "👎" : "👍";
-          return `
-            <div class="note-item">
-              <small>${icon} ${reviewer?.name || note.reviewerId}</small>
-              <p>${String(note.note || "").trim() || "No note."}</p>
-            </div>
-          `;
-        }).join("") : "<p>No notes yet.</p>"}
+      <div class="note-toggle-section">
+        <button type="button" class="toggle-notes-header collapsed">
+          <span>My notes</span>
+          <span class="toggle-icon">▼</span>
+        </button>
+        <div class="toggle-notes-body hidden">
+          <label for="noteType${targetId}"><b>Note type</b></label>
+          <select id="noteType${targetId}">
+            <option value="Positive">Positive 👍</option>
+            <option value="Negative">Negative 👎</option>
+          </select>
+          <textarea id="noteInput${targetId}" rows="4" placeholder="Add a note..."></textarea>
+          <button id="saveAdminNoteBtn${targetId}" class="save-note-action" style="margin-top: 10px;">Save Note</button>
+          <div style="margin-top: 20px;">
+            <b>All notes</b>
+            ${notes.length ? notes.map(note => {
+              const reviewer = STAFF_CACHE.find(s => String(s.discordId).trim() === String(note.reviewerId).trim());
+              const icon = note.type === "Negative" ? "👎" : "👍";
+              return `
+                <div class="note-item">
+                  <small>${icon} ${reviewer?.name || note.reviewerId}</small>
+                  <p>${String(note.note || "").trim() || "No note."}</p>
+                </div>
+              `;
+            }).join("") : "<p>No notes yet.</p>"}
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -542,6 +599,15 @@ async function expandAdminCard(targetId, cardEl, monthValue = month()) {
     });
   });
 
+  const toggleButton = detailsDiv.querySelector(".toggle-notes-header");
+  const toggleBody = detailsDiv.querySelector(".toggle-notes-body");
+  if (toggleButton && toggleBody) {
+    toggleButton.addEventListener("click", () => {
+      const isCollapsed = toggleBody.classList.toggle("hidden");
+      toggleButton.classList.toggle("open", !isCollapsed);
+    });
+  }
+
   detailsDiv.querySelector(`#saveAdminNoteBtn${targetId}`)?.addEventListener("click", async () => {
     const noteType = detailsDiv.querySelector(`#noteType${targetId}`)?.value || "Positive";
     const noteText = detailsDiv.querySelector(`#noteInput${targetId}`)?.value || "";
@@ -558,7 +624,7 @@ async function expandAdminCard(targetId, cardEl, monthValue = month()) {
     await expandAdminCard(targetId, cardEl, monthValue);
   });
 
-  detailsDiv.querySelector("button:last-of-type")?.addEventListener("click", async () => {
+  detailsDiv.querySelector(".refresh-notes")?.addEventListener("click", async () => {
     NOTES_CACHE = null;
     await expandAdminCard(targetId, cardEl, monthValue);
   });

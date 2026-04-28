@@ -44,8 +44,32 @@ async function loadAdmin() {
 
   const panel = document.getElementById("adminPanel");
 
+  function ratingToNumber(value) {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (!normalized) return null;
+    const map = {
+      excels: 5,
+      "on par": 4,
+      "meets standards": 3,
+      "below par": 2,
+      "needs work": 1
+    };
+    if (map[normalized] !== undefined) return map[normalized];
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  const numericRatings = Array.isArray(ratings)
+    ? ratings.map(r => ratingToNumber(r.rating)).filter(n => n !== null)
+    : [];
+  const averageRating = numericRatings.length
+    ? (numericRatings.reduce((sum, value) => sum + value, 0) / numericRatings.length)
+    : null;
+  const averageText = averageRating ? `${averageRating.toFixed(1)} / 5` : "N/A";
+
   panel.innerHTML = `
     <h2>Ratings</h2>
+    <p class="average-rating"><strong>General rating:</strong> ${averageText}</p>
     <pre>${JSON.stringify(ratings, null, 2)}</pre>
 
     <h2>Notes</h2>
