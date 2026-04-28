@@ -3,6 +3,12 @@ const params = new URLSearchParams(window.location.search);
 const userId = params.get("id");
 const token = params.get("token");
 
+// ========== MAINTENANCE MODE ==========
+// Set to true to put the portal in maintenance mode
+// Set to false to allow normal access
+const MAINTENANCE_MODE = false;
+// =====================================
+
 // ========== AVAILABLE MONTHS ==========
 // Add/remove months that have data here
 // Format: "YYYY-MM" (e.g., "2026-04" for April 2026)
@@ -182,6 +188,12 @@ async function fetchApi(action, data = {}) {
 async function verifyUser() {
   if (!userId || !token) {
     showDeniedOverlay("INVALID_LOGIN");
+    return false;
+  }
+
+  // Check if maintenance mode is enabled
+  if (MAINTENANCE_MODE) {
+    showDeniedOverlay("MAINTENANCE");
     return false;
   }
 

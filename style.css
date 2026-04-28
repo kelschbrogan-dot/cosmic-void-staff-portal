@@ -3,6 +3,32 @@ body {
   font-family: Arial, sans-serif;
   background: #0b0f1a;
   color: white;
+  /* Remove default mobile tap highlight */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Remove highlight on all interactive elements for mobile */
+button,
+a,
+.card,
+.staff-card,
+.toggle-notes-header,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Remove active state highlights */
+button:active,
+a:active,
+.card:active,
+.staff-card:active {
+  background-color: inherit;
+  box-shadow: none;
+  outline: none;
 }
 
 .header {
