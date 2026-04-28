@@ -278,22 +278,28 @@ async function verifyUser() {
     return false;
   }
 
-const verifiedUser = {
-  discordId: userId,
-  isWebAdmin: verifyRes.isWebAdmin,
-  name: verifyRes.name,
-  avatarURL: verifyRes.avatarURL
-};
+  const verifiedUser = {
+    discordId: userId,
+    isWebAdmin: verifyRes.isWebAdmin,
+    name: verifyRes.name,
+    avatarURL: verifyRes.avatarURL
+  };
 
-if (state.maintenance && !canManageMaintenance(verifiedUser)) {
-  showDeniedOverlay("MAINTENANCE");
-  return false;
-}
+  if (state.maintenance && !canManageMaintenance(verifiedUser)) {
+    showDeniedOverlay("MAINTENANCE");
+    return false;
+  }
 
-state.user = verifiedUser;
+  state.user = verifiedUser;
+
+  const adminTab = getEl("adminTab");
+  if (adminTab) {
+    adminTab.classList.toggle("hidden", !isAdmin(state.user));
+  }
 
   return true;
 }
+
 
 function showPage(page) {
   document.querySelectorAll("[data-page]").forEach(link => {
