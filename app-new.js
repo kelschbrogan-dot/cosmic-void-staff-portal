@@ -290,15 +290,11 @@ async function verifyUser() {
     return false;
   }
 
-  state.user = verifiedUser;
+state.user = verifiedUser;
+updateNavVisibility();
 
-  const adminTab = getEl("adminTab");
-  if (adminTab) {
-    adminTab.classList.toggle("hidden", !isAdmin(state.user));
-  }
+return true;
 
-  return true;
-}
 
 
 function showPage(page) {
@@ -317,6 +313,18 @@ function showPage(page) {
     menu.classList.toggle("hidden", page === "revoked");
   }
 }
+
+function updateNavVisibility() {
+  const adminTab = getEl("adminTab");
+  if (!adminTab) return;
+
+  const shouldShowAdmin = isAdmin(state.user);
+
+  adminTab.classList.toggle("hidden", !shouldShowAdmin);
+  adminTab.style.display = shouldShowAdmin ? "" : "none";
+  adminTab.hidden = !shouldShowAdmin;
+}
+
 
 function buildMonthOptions() {
   const select = getEl("adminMonthSelect");
