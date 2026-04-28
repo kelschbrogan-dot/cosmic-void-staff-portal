@@ -250,15 +250,16 @@ async function verifyUser() {
   }
 
   showStatus("Verifying credentials...");
+
   const tokenRes = await fetchApi("getToken", { discordId: userId });
   const verifyRes = await fetchApi("verifyUser", { discordId: userId, token });
   const maintenanceRes = await fetchApi("getMaintenanceMode", {});
 
   if (!tokenRes || !verifyRes) {
-  console.error("Verification failed:", { tokenRes, verifyRes, maintenanceRes });
-  showError("❌ Failed to contact server. Try again.");
-  return false;
-}
+    console.error("Verification failed:", { tokenRes, verifyRes, maintenanceRes });
+    showError("❌ Failed to contact server. Try again.");
+    return false;
+  }
 
   state.maintenance = maintenanceRes?.maintenance ? true : false;
 
@@ -279,11 +280,21 @@ async function verifyUser() {
 
   const role = getUserRole({ isWebAdmin: verifyRes.isWebAdmin });
 
-const role = getUserRole({ isWebAdmin: verifyRes.isWebAdmin });
+  const maintenanceAllowed = ["DEVELOPER", "ADMINISTRATOR"].includes(role);
 
-if (state.maintenance && !["ADMIN", "ADMINISTRATOR", "DEVELOPER"].includes(role)) {
-  showDeniedOverlay("MAINTENANCE");
-  return false;
+  if (state.maintenance && !maintenanceAllowed) {
+    showDeniedOverlay("MAINTENANCE");
+    return false;
+  }
+
+  state.user = {
+    discordId: userId,
+    isWebAdmin: verifyRes.isWebAdmin,
+    name: verifyRes.name,
+    avatarURL: verifyRes.avatarURL
+  };
+
+  return true;
 }
 
 function showPage(page) {
