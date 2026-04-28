@@ -135,11 +135,11 @@ function showDeniedOverlay(reason) {
   let message = "You do not have permission to access this portal.";
 
   if (reason === "INVALID_LOGIN") {
-    title = "Invalid Login";
-    message = "Your login link is invalid. Please verify your ID and token or try a fresh link.";
+    title = "Access Denied";
+    message = "This is for official use by members of the Cosmic Void Staff Team. If this is a mistake, contact a Cosmic Commander.";
   } else if (reason === "SUSPENDED") {
-    title = "Account Suspended";
-    message = "Your account has been suspended, possibly due to staff status changes. Contact your administrator for help.";
+    title = "Access Revoked";
+    message = "Your access to the Cosmic Void Staff Portal has been revoked by a Cosmic Commander.";
   } else if (reason === "MAINTENANCE") {
     title = "Maintenance";
     message = "The portal is temporarily unavailable due to maintenance. Please check back shortly.";
