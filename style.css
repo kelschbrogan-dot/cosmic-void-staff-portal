@@ -21,6 +21,69 @@ textarea {
   user-select: none;
 }
 
+.review-filter-controls,
+.profile-editor,
+.admin-controls button {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.review-filter-controls button,
+.admin-controls button {
+  background: #1f2937;
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.review-filter-controls button.active,
+.admin-controls button.active {
+  background: #2563eb;
+  color: white;
+}
+
+.review-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  width: fit-content;
+}
+
+.review-status.complete {
+  background: rgba(16, 185, 129, 0.15);
+  color: #a7f3d0;
+}
+
+.review-status.incomplete {
+  background: rgba(248, 113, 113, 0.15);
+  color: #fecaca;
+}
+
+.profile-editor {
+  width: 100%;
+  gap: 12px;
+  margin-bottom: 15px;
+}
+
+.profile-editor .profile-card {
+  width: 100%;
+  background: #111827;
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.profile-editor .profile-card label {
+  margin-top: 10px;
+}
+
+.profile-editor .profile-card button {
+  align-self: flex-start;
+}
+
 /* Remove active state highlights */
 button:active,
 a:active,

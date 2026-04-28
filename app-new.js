@@ -4,15 +4,11 @@ const userId = params.get("id");
 const token = params.get("token");
 
 // ========== MAINTENANCE MODE ==========
-// Set to true to put the portal in maintenance mode
-// Set to false to allow normal access
+// Set to true to put the portal in hard maintenance mode locally.
 const MAINTENANCE_MODE = false;
 // =====================================
 
 // ========== AVAILABLE MONTHS ==========
-// Add/remove months that have data here
-// Format: "YYYY-MM" (e.g., "2026-04" for April 2026)
-// Example: ["2026-04", "2026-05", "2026-06"]
 const AVAILABLE_MONTHS = [
   "2026-04",  // April 2026
   "2026-05"   // May 2026
@@ -24,7 +20,9 @@ const state = {
   ratings: [],
   notes: [],
   month: getCurrentMonth(),
-  user: null
+  user: null,
+  reviewFilter: "all",
+  maintenance: false
 };
 
 function getCurrentMonth() {
@@ -62,6 +60,15 @@ function getEl(id) {
   return document.getElementById(id);
 }
 
+function escapeHtml(text) {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function showSpinner() {
   const spinner = getEl("loadingSpinner");
   if (spinner) spinner.style.display = "block";
@@ -91,7 +98,7 @@ function showError(message) {
   showStatus(message, "error");
   const reviewsBox = getEl("reviewsBox");
   if (reviewsBox) {
-    reviewsBox.innerHTML = `<div class="card"><p>${message}</p></div>`;
+    reviewsBox.innerHTML = `<div class="card"><p>${escapeHtml(message)}</p></div>`;
   }
 }
 
@@ -104,20 +111,27 @@ function showPopup(title, html, actions = []) {
   const actionsContainer = getEl("popupActions");
   if (!actionsContainer) return;
   actionsContainer.innerHTML = actions.map(action => `
-      <button class="overlay-button ${action.secondary ? "secondary" : ""}" id="${action.id}">${action.text}</button>
+      <button class="overlay-button ${action.secondary ? "secondary" : ""}" id="${action.id}">${escapeHtml(action.text)}</button>
     `).join("");
 
   overlay.classList.remove("hidden");
   overlay.setAttribute("aria-hidden", "false");
 
-  getEl("popupClose")?.addEventListener("click", hidePopup);
+  const closeButton = getEl("popupClose");
+  if (closeButton) {
+    closeButton.onclick = hidePopup;
+  }
+
   overlay.onclick = event => {
     if (event.target === overlay) hidePopup();
   };
 
   actions.forEach(action => {
     if (!action.callback || !action.id) return;
-    getEl(action.id)?.addEventListener("click", action.callback);
+    const element = getEl(action.id);
+    if (element) {
+      element.onclick = action.callback;
+    }
   });
 }
 
@@ -145,7 +159,7 @@ function showDeniedOverlay(reason) {
     message = "The portal is temporarily unavailable due to maintenance. Please check back shortly.";
   }
 
-  showPopup(title, `<p>${message}</p>`, [
+  showPopup(title, `<p>${escapeHtml(message)}</p>`, [
     { id: "popupCloseBtn", text: "Close", secondary: true, callback: hidePopup }
   ]);
 }
@@ -191,12 +205,6 @@ async function verifyUser() {
     return false;
   }
 
-  // Check if maintenance mode is enabled
-  if (MAINTENANCE_MODE) {
-    showDeniedOverlay("MAINTENANCE");
-    return false;
-  }
-
   showStatus("Verifying credentials...");
   const tokenRes = await fetchApi("getToken", { discordId: userId });
   const verifyRes = await fetchApi("verifyUser", { discordId: userId, token });
@@ -206,10 +214,7 @@ async function verifyUser() {
     return false;
   }
 
-  if (tokenRes?.error === "MAINTENANCE" || verifyRes?.error === "MAINTENANCE") {
-    showDeniedOverlay("MAINTENANCE");
-    return false;
-  }
+  state.maintenance = isTrue(tokenRes.maintenance);
 
   if (!isTrue(tokenRes.success)) {
     showDeniedOverlay("INVALID_LOGIN");
@@ -221,8 +226,13 @@ async function verifyUser() {
     return false;
   }
 
-  if (!isTrue(verifyRes.valid)) {
+  if (!isTrue(verifyRes.valid) && !state.maintenance) {
     showDeniedOverlay("INVALID_LOGIN");
+    return false;
+  }
+
+  if (state.maintenance && !isTrue(verifyRes.isWebAdmin)) {
+    showDeniedOverlay("MAINTENANCE");
     return false;
   }
 
@@ -268,16 +278,59 @@ function buildMonthOptions() {
   });
 
   select.innerHTML = months.map(m => `<option value="${m.value}">${m.display}</option>`).join("");
-  
-  // Set to current month if available, otherwise first available month
   const currentMonthStr = state.month;
   select.value = AVAILABLE_MONTHS.includes(currentMonthStr) ? currentMonthStr : AVAILABLE_MONTHS[0];
   state.month = select.value;
-  
+
   select.addEventListener("change", async () => {
     state.month = select.value;
     await loadAdmin();
   });
+}
+
+function renderProfileEditor() {
+  const profileEditor = getEl("profileEditor");
+  if (!profileEditor || !state.user) return;
+
+  profileEditor.innerHTML = `
+    <div class="profile-card">
+      <h3>Your profile</h3>
+      <label for="profileNameInput">Display name</label>
+      <input id="profileNameInput" type="text" value="${escapeHtml(state.user.name || "")}" placeholder="Nickname" />
+      <label for="profileAvatarInput">Avatar URL</label>
+      <input id="profileAvatarInput" type="text" value="${escapeHtml(state.user.avatarURL || "")}" placeholder="Avatar image URL" />
+      <button id="profileSaveButton" type="button">Save profile</button>
+    </div>
+  `;
+
+  getEl("profileSaveButton")?.addEventListener("click", saveOwnProfile);
+}
+
+function renderReviewFilterControls() {
+  const container = getEl("reviewFilterControls");
+  if (!container) return;
+
+  container.innerHTML = `
+    <button id="filterAll" class="${state.reviewFilter === "all" ? "active" : ""}" type="button">All</button>
+    <button id="filterComplete" class="${state.reviewFilter === "complete" ? "active" : ""}" type="button">Complete</button>
+    <button id="filterIncomplete" class="${state.reviewFilter === "incomplete" ? "active" : ""}" type="button">Incomplete</button>
+  `;
+
+  ["all", "complete", "incomplete"].forEach(filter => {
+    const button = getEl(`filter${filter.charAt(0).toUpperCase() + filter.slice(1)}`);
+    if (!button) return;
+    button.addEventListener("click", () => {
+      state.reviewFilter = filter;
+      renderReviewFilterControls();
+      renderReviews();
+    });
+  });
+}
+
+function getReviewCompletion(member) {
+  const targetId = String(member.discordId).trim();
+  const currentRating = state.ratings.find(r => String(r.targetId).trim() === targetId && String(r.reviewerId).trim() === String(userId).trim());
+  return !!currentRating && currentRating.rating && currentRating.rating !== "N/A";
 }
 
 function renderReviews() {
@@ -285,24 +338,32 @@ function renderReviews() {
   if (!reviewsBox) return;
 
   const activeStaff = state.staff.filter(member => isTrue(member.isActive));
-  if (!activeStaff.length) {
-    reviewsBox.innerHTML = `<div class="card"><p>No active staff found.</p></div>`;
+  const filteredStaff = activeStaff.filter(member => {
+    const completed = getReviewCompletion(member);
+    if (state.reviewFilter === "complete") return completed;
+    if (state.reviewFilter === "incomplete") return !completed;
+    return true;
+  });
+
+  if (!filteredStaff.length) {
+    reviewsBox.innerHTML = `<div class="card"><p>No staff matching this view.</p></div>`;
     return;
   }
 
-  reviewsBox.innerHTML = activeStaff.map(member => {
+  reviewsBox.innerHTML = filteredStaff.map(member => {
     const isYou = String(member.discordId).trim() === String(userId).trim();
-    const currentRating = state.ratings.find(r => String(r.targetId).trim() === String(member.discordId).trim() && String(r.reviewerId).trim() === String(userId).trim());
-    const selectedRating = currentRating?.rating ? currentRating.rating : "N/A";
     const targetId = String(member.discordId).trim();
+    const currentRating = state.ratings.find(r => String(r.targetId).trim() === targetId && String(r.reviewerId).trim() === String(userId).trim());
+    const selectedRating = currentRating?.rating ? currentRating.rating : "N/A";
     const myNotes = state.notes.filter(note => String(note.targetId).trim() === targetId && String(note.reviewerId).trim() === String(userId).trim());
+    const completed = getReviewCompletion(member);
 
     if (isYou) {
       return `
         <div class="card no-click">
-          <img src="${member.avatarURL || ""}" alt="${member.name}">
+          <img src="${escapeHtml(member.avatarURL || "")}" alt="${escapeHtml(member.name)}">
           <div class="card-body">
-            <b>${member.name}</b>
+            <b>${escapeHtml(member.name)}</b>
             <p style="opacity:0.6;">This is you! 💜</p>
           </div>
         </div>`;
@@ -315,8 +376,8 @@ function renderReviews() {
       const anonClass = isAnonymous ? " anonymous-note" : "";
       return `
         <div class="note-item${anonClass}">
-          <small>${note.type === "Negative" ? "👎" : "👍"} ${displayType}</small>
-          <p>${displayNote || "No note content."}</p>
+          <small>${note.type === "Negative" ? "👎" : "👍"} ${escapeHtml(displayType)}</small>
+          <p>${escapeHtml(displayNote || "No note content.")}</p>
         </div>
       `;
     }).join("") : `
@@ -324,16 +385,19 @@ function renderReviews() {
       `;
 
     return `
-      <div class="card" data-id="${targetId}">
-        <img src="${member.avatarURL || ""}" alt="${member.name}">
+      <div class="card" data-id="${escapeHtml(targetId)}">
+        <img src="${escapeHtml(member.avatarURL || "")}" alt="${escapeHtml(member.name)}">
         <div class="card-body">
-          <b>${member.name}</b>
-          <select data-id="${targetId}">
+          <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
+            <b>${escapeHtml(member.name)}</b>
+            <span class="review-status ${completed ? "complete" : "incomplete"}">${completed ? "Complete" : "Incomplete"}</span>
+          </div>
+          <select data-id="${escapeHtml(targetId)}">
             ${["Excels", "On Par", "Meets Standards", "Below Par", "Needs Work", "N/A"].map(option => `
               <option value="${option}" ${option === selectedRating ? "selected" : ""}>${option}</option>
             `).join("")}
           </select>
-          <textarea data-id="${targetId}" placeholder="Leave a comment... (Optional)">${currentRating?.comment || ""}</textarea>
+          <textarea data-id="${escapeHtml(targetId)}" placeholder="Leave a comment... (Optional)">${escapeHtml(currentRating?.comment || "")}</textarea>
           <div class="note-summary">
             <button type="button" class="toggle-notes-header collapsed">
               <span>My notes</span>
@@ -341,15 +405,15 @@ function renderReviews() {
             </button>
             <div class="toggle-notes-body hidden">
               <div class="note-list">${notesHtml}</div>
-              <label for="noteType-${targetId}">New note type</label>
-              <select id="noteType-${targetId}" data-note-id="${targetId}">
+              <label for="noteType-${escapeHtml(targetId)}">New note type</label>
+              <select id="noteType-${escapeHtml(targetId)}" data-note-id="${escapeHtml(targetId)}">
                 <option value="Positive">Positive 👍</option>
                 <option value="Negative">Negative 👎</option>
               </select>
-              <label for="noteInput-${targetId}">Add a note</label>
-              <textarea id="noteInput-${targetId}" data-note-id="${targetId}" rows="3" placeholder="Add a note about this staff member..."></textarea>
-              <label for="anon-${targetId}"><input type="checkbox" id="anon-${targetId}" data-anon-id="${targetId}"> Submit anonymously</label>
-              <button class="save-note-button" data-note-id="${targetId}" type="button">Add note</button>
+              <label for="noteInput-${escapeHtml(targetId)}">Add a note</label>
+              <textarea id="noteInput-${escapeHtml(targetId)}" data-note-id="${escapeHtml(targetId)}" rows="3" placeholder="Add a note about this staff member..."></textarea>
+              <label for="anon-${escapeHtml(targetId)}"><input type="checkbox" id="anon-${escapeHtml(targetId)}" data-anon-id="${escapeHtml(targetId)}"> Submit anonymously</label>
+              <button class="save-note-button" data-note-id="${escapeHtml(targetId)}" type="button">Add note</button>
             </div>
           </div>
         </div>
@@ -376,6 +440,220 @@ function renderReviews() {
       button.classList.toggle("open", !isHidden);
     });
   });
+}
+
+async function saveOwnProfile() {
+  const nameInput = getEl("profileNameInput");
+  const avatarInput = getEl("profileAvatarInput");
+  const name = nameInput?.value.trim();
+  const avatarURL = avatarInput?.value.trim();
+
+  if (!name && !avatarURL) {
+    showStatus("Enter a display name or avatar URL before saving.");
+    return;
+  }
+
+  showStatus("Saving profile...");
+  showSpinner();
+
+  const result = await fetchApi("updateStaff", {
+    discordId: userId,
+    updates: { name, avatarURL }
+  });
+
+  if (!result?.success) {
+    showError("❌ Failed to save profile.");
+    hideSpinner();
+    return;
+  }
+
+  state.user.name = name || state.user.name;
+  state.user.avatarURL = avatarURL || state.user.avatarURL;
+  const self = state.staff.find(member => String(member.discordId).trim() === String(userId).trim());
+  if (self) {
+    self.name = name || self.name;
+    self.avatarURL = avatarURL || self.avatarURL;
+  }
+
+  renderProfileEditor();
+  renderReviews();
+  hideSpinner();
+  showStatus("Profile updated.");
+}
+
+function renderAdminControls() {
+  const maintenanceBtn = getEl("adminMaintenanceBtn");
+  const addStaffBtn = getEl("adminAddStaffBtn");
+  if (maintenanceBtn) {
+    maintenanceBtn.textContent = state.maintenance ? "Maintenance: On" : "Maintenance: Off";
+    maintenanceBtn.onclick = async () => {
+      await toggleMaintenance(!state.maintenance);
+    };
+  }
+  if (addStaffBtn) {
+    addStaffBtn.onclick = openAddStaffModal;
+  }
+}
+
+async function toggleMaintenance(enabled) {
+  showStatus(enabled ? "Enabling maintenance..." : "Disabling maintenance...");
+  showSpinner();
+
+  const result = await fetchApi("setMaintenance", { enabled });
+  if (!result?.success) {
+    showError("❌ Failed to update maintenance mode.");
+    hideSpinner();
+    return;
+  }
+
+  state.maintenance = enabled;
+  renderAdminControls();
+  hideSpinner();
+  showStatus(`Maintenance ${enabled ? "enabled" : "disabled"}.`);
+}
+
+async function openAddStaffModal() {
+  showPopup("Add new staff member", `
+    <label for="newDiscordId">Discord ID</label>
+    <input id="newDiscordId" type="text" placeholder="123456789012345678" />
+    <label for="newName">Display name</label>
+    <input id="newName" type="text" placeholder="Nickname" />
+    <label for="newAvatarURL">Avatar URL</label>
+    <input id="newAvatarURL" type="text" placeholder="https://..." />
+    <label><input type="checkbox" id="newIsWebAdmin" /> Make admin</label>
+    <label><input type="checkbox" id="newIsActive" checked /> Active</label>
+  `, [
+    { id: "addStaffCancelBtn", text: "Cancel", secondary: true, callback: hidePopup },
+    { id: "addStaffSaveBtn", text: "Create Staff", callback: async () => {
+      const discordId = getEl("newDiscordId")?.value.trim();
+      const name = getEl("newName")?.value.trim();
+      const avatarURL = getEl("newAvatarURL")?.value.trim();
+      const isWebAdmin = getEl("newIsWebAdmin")?.checked || false;
+      const isActive = getEl("newIsActive")?.checked || false;
+
+      if (!discordId || !name) {
+        showStatus("Discord ID and display name are required.");
+        return;
+      }
+
+      showStatus("Creating new staff member...");
+      showSpinner();
+      const result = await fetchApi("addStaff", {
+        discordId,
+        name,
+        avatarURL,
+        isWebAdmin,
+        isActive
+      });
+
+      hideSpinner();
+      if (!result?.success) {
+        showError("❌ Failed to create staff member.");
+        return;
+      }
+
+      hidePopup();
+      await refreshStaff();
+      await loadAdmin();
+      showStatus("New staff member added.");
+    } }
+  ]);
+}
+
+async function openAdminStaffModal(targetId) {
+  const member = state.staff.find(s => String(s.discordId).trim() === String(targetId).trim());
+  if (!member) return;
+
+  const ratings = getAdminTargetRatings(targetId);
+  const notes = getAdminTargetNotes(targetId);
+  const positiveCount = notes.filter(note => note.type === "Positive").length;
+  const negativeCount = notes.filter(note => note.type === "Negative").length;
+  const memberAvgRating = computeAverageRating(ratings);
+
+  const html = `
+    <div class="popup-section">
+      <b>Manage staff member</b>
+      <label for="adminUserName">Display name</label>
+      <input id="adminUserName" type="text" value="${escapeHtml(member.name || "")}" />
+      <label for="adminUserAvatar">Avatar URL</label>
+      <input id="adminUserAvatar" type="text" value="${escapeHtml(member.avatarURL || "")}" />
+      <label><input type="checkbox" id="adminUserActive" ${isTrue(member.isActive) ? "checked" : ""} /> Active</label>
+      <label><input type="checkbox" id="adminUserWebAdmin" ${isTrue(member.isWebAdmin) ? "checked" : ""} /> Web admin</label>
+      <div style="margin-top: 12px; display:flex; gap:12px; flex-wrap:wrap;">
+        <button id="adminSaveUserBtn" type="button">Save changes</button>
+        <button id="adminResetTokenBtn" type="button">Reset token</button>
+      </div>
+      <div id="adminStaffTokenResult" style="margin-top: 12px;"></div>
+    </div>
+    <div class="popup-section">
+      <h3>Performance snapshot</h3>
+      <p><strong>Ratings received:</strong> ${ratings.length}</p>
+      <p><strong>Avg rating:</strong> ${memberAvgRating ? memberAvgRating.toFixed(1) : "N/A"}</p>
+      <p><strong>Notes:</strong> ${notes.length} (${positiveCount} positive, ${negativeCount} negative)</p>
+    </div>
+  `;
+
+  showPopup(`Manage ${member.name}`, html, [
+    { id: "adminCloseUserBtn", text: "Close", secondary: true, callback: hidePopup }
+  ]);
+
+  getEl("adminSaveUserBtn")?.addEventListener("click", async () => {
+    const name = getEl("adminUserName")?.value.trim();
+    const avatarURL = getEl("adminUserAvatar")?.value.trim();
+    const isActive = getEl("adminUserActive")?.checked || false;
+    const isWebAdmin = getEl("adminUserWebAdmin")?.checked || false;
+
+    showStatus("Saving staff member...");
+    showSpinner();
+
+    const result = await fetchApi("updateStaff", {
+      discordId: targetId,
+      updates: { name, avatarURL, isActive, isWebAdmin }
+    });
+
+    hideSpinner();
+    if (!result?.success) {
+      showError("❌ Failed to update staff member.");
+      return;
+    }
+
+    hidePopup();
+    await refreshStaff();
+    await loadAdmin();
+    showStatus("Staff member updated.");
+  });
+
+  getEl("adminResetTokenBtn")?.addEventListener("click", async () => {
+    showStatus("Resetting token...");
+    showSpinner();
+
+    const result = await fetchApi("resetStaffToken", { discordId: targetId });
+    hideSpinner();
+    if (!result?.success) {
+      showError("❌ Failed to reset token.");
+      return;
+    }
+
+    const tokenResult = getEl("adminStaffTokenResult");
+    if (tokenResult) {
+      tokenResult.innerHTML = `<small style="color:#a7f3d0;">New token: <code>${escapeHtml(result.newToken || "")}</code></small>`;
+    }
+
+    await refreshStaff();
+    showStatus("Token reset successfully.");
+  });
+}
+
+function getReviewerName(reviewerId) {
+  return state.staff.find(member => String(member.discordId).trim() === String(reviewerId).trim())?.name || reviewerId;
+}
+
+function getAdminTargetNotes(targetId) {
+  return state.notes.filter(note => String(note.targetId).trim() === String(targetId).trim());
+}
+
+function getAdminTargetRatings(targetId) {
+  return state.ratings.filter(rating => String(rating.targetId).trim() === String(targetId).trim());
 }
 
 async function saveNoteForTarget(targetId, button) {
@@ -429,6 +707,55 @@ async function saveNoteForTarget(targetId, button) {
   showStatus("Note saved.");
 }
 
+async function refreshStaff() {
+  const staff = await fetchApi("getStaff");
+  state.staff = Array.isArray(staff) ? staff : state.staff;
+}
+
+async function loadReviews() {
+  showPage("reviews");
+  showStatus("Loading reviews...");
+  showSpinner();
+
+  await refreshStaff();
+
+  const ratings = await fetchApi("getRatings", { month: state.month });
+  state.ratings = Array.isArray(ratings) ? ratings : [];
+
+  const notes = await fetchApi("getNotes", { month: state.month });
+  state.notes = Array.isArray(notes) ? notes : [];
+
+  renderProfileEditor();
+  renderReviewFilterControls();
+  renderReviews();
+  hideSpinner();
+  showStatus("Reviews loaded.");
+}
+
+async function loadAdmin() {
+  if (!state.user?.isWebAdmin) {
+    showError("❌ Admin access required.");
+    return;
+  }
+
+  showPage("admin");
+  showStatus("Loading admin dashboard...");
+  showSpinner();
+
+  await refreshStaff();
+
+  const ratings = await fetchApi("getRatings", { month: state.month });
+  state.ratings = Array.isArray(ratings) ? ratings : [];
+
+  const notes = await fetchApi("getNotes", { month: state.month });
+  state.notes = Array.isArray(notes) ? notes : [];
+
+  renderAdminControls();
+  renderAdmin();
+  hideSpinner();
+  showStatus("Admin dashboard loaded.");
+}
+
 function renderAdmin() {
   const statsBox = getEl("adminStats");
   const adminList = getEl("adminList");
@@ -440,9 +767,7 @@ function renderAdmin() {
   const positiveNotes = state.notes.filter(note => note.type === "Positive").length;
   const negativeNotes = state.notes.filter(note => note.type === "Negative").length;
   const averageRating = computeAverageRating(state.ratings);
-
-  // Calculate completion stats
-  const totalPossibleRatings = activeStaff.length * (activeStaff.length - 1); // Everyone rates everyone except themselves
+  const totalPossibleRatings = activeStaff.length * (activeStaff.length - 1);
   const ratingCompletion = totalPossibleRatings > 0 ? Math.round((ratingCount / totalPossibleRatings) * 100) : 0;
 
   statsBox.innerHTML = `
@@ -483,10 +808,10 @@ function renderAdmin() {
     const expectedRatings = activeStaff.length - 1;
 
     return `
-      <div class="staff-card" data-id="${targetId}">
-        <img src="${member.avatarURL || ''}" alt="${member.name}" style="width: 50px; height: 50px; border-radius: 50%; margin-bottom: 8px;">
+      <div class="staff-card" data-id="${escapeHtml(targetId)}">
+        <img src="${escapeHtml(member.avatarURL || '')}" alt="${escapeHtml(member.name)}" style="width: 50px; height: 50px; border-radius: 50%; margin-bottom: 8px;">
         <div class="card-body">
-          <b>${member.name}</b>
+          <b>${escapeHtml(member.name)}</b>
           <p style="margin: 4px 0; opacity: 0.8;">Avg: <span style="color: #3b82f6; font-weight: bold;">${memberAvgRating ? memberAvgRating.toFixed(1) : 'N/A'}</span>/5</p>
           <p style="margin: 4px 0; opacity: 0.8;"><span style="color: #94a3b8;">${ratingsReceived}</span> ratings received</p>
           <p style="margin: 4px 0; opacity: 0.8;"><span style="color: #94a3b8;">${memberGivenRatings.length}/${expectedRatings}</span> ratings given</p>
@@ -501,118 +826,6 @@ function renderAdmin() {
       if (targetId) openAdminStaffModal(targetId);
     });
   });
-}
-
-function getReviewerName(reviewerId) {
-  return state.staff.find(member => String(member.discordId).trim() === String(reviewerId).trim())?.name || reviewerId;
-}
-
-function getAdminTargetNotes(targetId) {
-  return state.notes.filter(note => String(note.targetId).trim() === String(targetId).trim());
-}
-
-function getAdminTargetRatings(targetId) {
-  return state.ratings.filter(rating => String(rating.targetId).trim() === String(targetId).trim());
-}
-
-async function openAdminStaffModal(targetId) {
-  const member = state.staff.find(s => String(s.discordId).trim() === String(targetId).trim());
-  if (!member) return;
-
-  const ratings = getAdminTargetRatings(targetId);
-  const notes = getAdminTargetNotes(targetId);
-
-  const ratingsHtml = ratings.length ? ratings.map(r => `
-      <div class="note-item">
-        <small>⭐ ${getReviewerName(r.reviewerId)} - ${r.rating}</small>
-        <p>${String(r.comment || "").trim() || "No comment."}</p>
-      </div>
-    `).join("") : "<p>No ratings yet.</p>";
-
-  const positiveCount = notes.filter(note => note.type === "Positive").length;
-  const negativeCount = notes.filter(note => note.type === "Negative").length;
-  const notesHtml = notes.length ? notes.map(note => {
-    const isAnonymous = String(note.note || "").startsWith("[ANON]");
-    const displayName = isAnonymous ? "Anonymous" : getReviewerName(note.reviewerId);
-    const displayNote = isAnonymous ? String(note.note || "").substring(6).trim() : String(note.note || "").trim();
-    const anonClass = isAnonymous ? " anonymous-note" : "";
-    const anonText = isAnonymous ? "<small style='opacity: 0.7;'>Anonymous Note</small>" : "";
-    return `
-      <div class="note-item${anonClass}">
-        <small>${note.type === "Negative" ? "👎" : "👍"} ${displayName}</small>
-        <p>${displayNote || "No note."}</p>
-        ${anonText}
-      </div>
-    `;
-  }).join("") : "<p>No notes yet.</p>";
-
-  showPopup(`Staff details for ${member.name}`, `
-    <div class="popup-section">
-      <h3>Ratings</h3>
-      ${ratingsHtml}
-    </div>
-    <div class="popup-section">
-      <h3>Notes (${notes.length})</h3>
-      <p>${positiveCount} positive • ${negativeCount} negative</p>
-      ${notesHtml}
-    </div>
-  `, [
-    { id: "popupCloseBtn", text: "Close", secondary: true, callback: hidePopup }
-  ]);
-}
-
-
-async function loadReviews() {
-  showPage("reviews");
-  showStatus("Loading reviews...");
-  showSpinner();
-
-  if (!state.staff.length) {
-    const staff = await fetchApi("getStaff");
-    state.staff = Array.isArray(staff) ? staff : [];
-  }
-
-  const ratings = await fetchApi("getRatings", { month: state.month });
-  state.ratings = Array.isArray(ratings) ? ratings : [];
-
-  const notes = await fetchApi("getNotes", { month: state.month });
-  state.notes = Array.isArray(notes) ? notes : [];
-
-  if (!Array.isArray(state.staff)) {
-    showError("❌ Failed to load staff.");
-    hideSpinner();
-    return;
-  }
-
-  renderReviews();
-  hideSpinner();
-  showStatus("Reviews loaded.");
-}
-
-async function loadAdmin() {
-  if (!state.user?.isWebAdmin) {
-    showError("❌ Admin access required.");
-    return;
-  }
-
-  showPage("admin");
-  showStatus("Loading admin dashboard...");
-  showSpinner();
-
-  if (!state.staff.length) {
-    const staff = await fetchApi("getStaff");
-    state.staff = Array.isArray(staff) ? staff : [];
-  }
-
-  const ratings = await fetchApi("getRatings", { month: state.month });
-  state.ratings = Array.isArray(ratings) ? ratings : [];
-
-  const notes = await fetchApi("getNotes", { month: state.month });
-  state.notes = Array.isArray(notes) ? notes : [];
-
-  renderAdmin();
-  hideSpinner();
-  showStatus("Admin dashboard loaded.");
 }
 
 async function saveReviews() {
