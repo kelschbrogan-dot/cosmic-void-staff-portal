@@ -232,7 +232,7 @@ async function fetchApi(action, data = {}) {
     }
 
     const json = await response.json();
-    console.log(`✅ API ${action} success:`, json); // ⬅️ DEBUG LOG
+  // console.log(`✅ API ${action} success:`, json); // ⬅️ DEBUG LOG
 
     return json;
 
