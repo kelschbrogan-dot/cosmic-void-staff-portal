@@ -2015,13 +2015,12 @@ async function openAdminStaffModal(targetId) {
         isFeatured,
         featuredEmoji: isFeatured ? (pinnedEmoji || "\u{1F31F}") : pinnedEmoji
       }
+    });
       console.log("Received ID:", d.discordId);
 
 for (let i = 1; i < staffData.length; i++) {
   console.log("Sheet row ID:", staffData[i][0]);
 }
-    });
-
     hideSpinner();
 
     if (!result?.success) {
