@@ -3,6 +3,7 @@ const SHEET_ID = "1BkYdNFS5IknAeKVm3xbplJo_dXtGlPJGR9WQkqXcd2w";
 const STAFF_TAB = "Staff";
 const RATINGS_TAB = "Ratings";
 const NOTES_TAB = "Notes";
+const MESSAGES_TAB = "Messages";
 
 // ---------------- SHEET HELPERS ----------------
 
@@ -209,6 +210,110 @@ function saveNotes(d) {
   return json({ success: true });
 }
 
+// ---------------- MESSAGES ----------------
+
+function getMessages(d) {
+  const rows = sheet(MESSAGES_TAB).getDataRange().getValues();
+  const userId = normalizeId(d.userId);
+
+  let out = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const message = {
+      id: rows[i][0],
+      senderId: normalizeId(rows[i][1]),
+      recipientIds: String(rows[i][2] || "").split(",").map(id => normalizeId(id.trim())).filter(id => id),
+      subject: rows[i][3] || "",
+      message: rows[i][4] || "",
+      isUrgent: isTrue(rows[i][5]),
+      sentAt: rows[i][6],
+      readBy: String(rows[i][7] || "").split(",").map(id => normalizeId(id.trim())).filter(id => id)
+    };
+
+    // Include messages where user is recipient or it's sent to all staff
+    const isRecipient = message.recipientIds.includes(userId) || message.recipientIds.includes("ALL");
+    if (isRecipient) {
+      out.push(message);
+    }
+  }
+
+  return json(out);
+}
+
+function sendMessage(d) {
+  const senderId = normalizeId(d.senderId);
+  const recipientIds = Array.isArray(d.recipientIds) ? d.recipientIds.map(id => normalizeId(id)) : [normalizeId(d.recipientIds)];
+  const subject = String(d.subject || "").trim();
+  const message = String(d.message || "").trim();
+  const isUrgent = isTrue(d.isUrgent);
+  const sentAt = new Date();
+  const messageId = generateRandomToken(16); // Generate unique message ID
+
+  if (!subject || !message) {
+    return json({ success: false, error: "MISSING_FIELDS" });
+  }
+
+  sheet(MESSAGES_TAB).appendRow([
+    messageId,
+    senderId,
+    recipientIds.join(","),
+    subject,
+    message,
+    isUrgent,
+    sentAt,
+    "" // readBy starts empty
+  ]);
+
+  return json({ success: true, messageId });
+}
+
+function markMessageRead(d) {
+  const messageId = String(d.messageId || "").trim();
+  const userId = normalizeId(d.userId);
+
+  if (!messageId || !userId) {
+    return json({ success: false, error: "MISSING_FIELDS" });
+  }
+
+  const rows = sheet(MESSAGES_TAB).getDataRange().getValues();
+
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) === messageId) {
+      const currentReadBy = String(rows[i][7] || "").split(",").map(id => normalizeId(id.trim())).filter(id => id);
+      
+      if (!currentReadBy.includes(userId)) {
+        currentReadBy.push(userId);
+        sheet(MESSAGES_TAB).getRange(i + 1, 8).setValue(currentReadBy.join(","));
+      }
+      
+      return json({ success: true });
+    }
+  }
+
+  return json({ success: false, error: "MESSAGE_NOT_FOUND" });
+}
+
+function getAllMessages(d) {
+  const rows = sheet(MESSAGES_TAB).getDataRange().getValues();
+
+  let out = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    out.push({
+      id: rows[i][0],
+      senderId: normalizeId(rows[i][1]),
+      recipientIds: String(rows[i][2] || "").split(",").map(id => normalizeId(id.trim())).filter(id => id),
+      subject: rows[i][3] || "",
+      message: rows[i][4] || "",
+      isUrgent: isTrue(rows[i][5]),
+      sentAt: rows[i][6],
+      readBy: String(rows[i][7] || "").split(",").map(id => normalizeId(id.trim())).filter(id => id)
+    });
+  }
+
+  return json(out);
+}
+
 // ---------------- DASHBOARD ----------------
 
 function getDashboard(d){
@@ -392,6 +497,18 @@ function doPost(e){
 
     case "saveNotes":
       return saveNotes(d);
+
+    case "getMessages":
+      return getMessages(d);
+
+    case "sendMessage":
+      return sendMessage(d);
+
+    case "markMessageRead":
+      return markMessageRead(d);
+
+    case "getAllMessages":
+      return getAllMessages(d);
 
     case "getDashboard":
       return getDashboard(d);
