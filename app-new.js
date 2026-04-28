@@ -38,17 +38,22 @@ function getUserRole(user) {
 
   const raw = user.isWebAdmin;
 
-  // Handle booleans properly
   if (raw === true) return "ADMIN";
   if (raw === false || raw === null || raw === undefined) return "MEMBER";
 
   const role = String(raw).trim().toUpperCase();
 
-  if (["DEVELOPER", "ADMINISTRATOR", "ADMIN", "TRUE"].includes(role)) {
-    return role === "TRUE" ? "ADMIN" : role;
+  switch (role) {
+    case "DEVELOPER":
+      return "DEVELOPER";
+    case "ADMINISTRATOR":
+      return "ADMINISTRATOR";
+    case "ADMIN":
+    case "TRUE":
+      return "ADMIN";
+    default:
+      return "MEMBER";
   }
-
-  return "MEMBER";
 }
 
 function canManageMaintenance(user) {
@@ -274,22 +279,11 @@ async function verifyUser() {
 
   const role = getUserRole({ isWebAdmin: verifyRes.isWebAdmin });
 
-if (state.maintenance && role === "MEMBER") {
+const role = getUserRole({ isWebAdmin: verifyRes.isWebAdmin });
+
+if (state.maintenance && !["ADMIN", "ADMINISTRATOR", "DEVELOPER"].includes(role)) {
   showDeniedOverlay("MAINTENANCE");
   return false;
-}
-
-  state.user = {
-    ...tokenRes,
-    isWebAdmin: verifyRes.isWebAdmin
-  };
-
-  if (state.user.isWebAdmin) {
-    getEl("adminTab")?.classList.remove("hidden");
-  }
-
-  showStatus(`Signed in as ${state.user.name || "Staff"}`);
-  return true;
 }
 
 function showPage(page) {
