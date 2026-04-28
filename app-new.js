@@ -278,7 +278,7 @@ async function verifyUser() {
     return false;
   }
 
-  const role = getUserRole({ isWebAdmin: verifyRes.isWebAdmin });
+  const role = getUserRole(verifyRes);
 
   const maintenanceAllowed = ["DEVELOPER", "ADMINISTRATOR"].includes(role);
 
