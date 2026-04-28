@@ -468,6 +468,11 @@ button:hover {
   border-left: 3px solid #3b82f6;
 }
 
+.anonymous-note {
+  background: #2d1b1b;
+  border-left-color: #ef4444;
+}
+
 /* Better visual feedback on admin cards */
 .staff-card {
   transition: all 0.2s ease;

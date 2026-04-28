@@ -342,6 +342,7 @@ function renderReviews() {
               </select>
               <label for="noteInput-${targetId}">Add a note</label>
               <textarea id="noteInput-${targetId}" data-note-id="${targetId}" rows="3" placeholder="Add a note about this staff member..."></textarea>
+              <label for="anon-${targetId}"><input type="checkbox" id="anon-${targetId}" data-anon-id="${targetId}"> Submit anonymously</label>
               <button class="save-note-button" data-note-id="${targetId}" type="button">Add note</button>
             </div>
           </div>
@@ -373,12 +374,17 @@ function renderReviews() {
 async function saveNoteForTarget(targetId) {
   const noteTypeElement = document.querySelector(`#reviewsBox select[data-note-id='${targetId}']`);
   const noteTextElement = document.querySelector(`#reviewsBox textarea[data-note-id='${targetId}']`);
+  const anonCheckbox = document.querySelector(`#reviewsBox input[data-anon-id='${targetId}']`);
   const noteType = noteTypeElement?.value || "Positive";
-  const noteText = noteTextElement?.value || "";
+  let noteText = noteTextElement?.value || "";
 
   if (!noteText.trim()) {
     showStatus("Please enter a note before saving.");
     return;
+  }
+
+  if (anonCheckbox?.checked) {
+    noteText = "[ANON]" + noteText;
   }
 
   showStatus("Saving note...");
@@ -507,12 +513,20 @@ async function openAdminStaffModal(targetId) {
 
   const positiveCount = notes.filter(note => note.type === "Positive").length;
   const negativeCount = notes.filter(note => note.type === "Negative").length;
-  const notesHtml = notes.length ? notes.map(note => `
-      <div class="note-item">
-        <small>${note.type === "Negative" ? "👎" : "👍"} ${getReviewerName(note.reviewerId)}</small>
-        <p>${String(note.note || "").trim() || "No note."}</p>
+  const notesHtml = notes.length ? notes.map(note => {
+    const isAnonymous = String(note.note || "").startsWith("[ANON]");
+    const displayName = isAnonymous ? "Anonymous" : getReviewerName(note.reviewerId);
+    const displayNote = isAnonymous ? String(note.note || "").substring(6).trim() : String(note.note || "").trim();
+    const anonClass = isAnonymous ? " anonymous-note" : "";
+    const anonText = isAnonymous ? "<small style='opacity: 0.7;'>Anonymous Note</small>" : "";
+    return `
+      <div class="note-item${anonClass}">
+        <small>${note.type === "Negative" ? "👎" : "👍"} ${displayName}</small>
+        <p>${displayNote || "No note."}</p>
+        ${anonText}
       </div>
-    `).join("") : "<p>No notes yet.</p>";
+    `;
+  }).join("") : "<p>No notes yet.</p>";
 
   showPopup(`Staff details for ${member.name}`, `
     <div class="popup-section">
