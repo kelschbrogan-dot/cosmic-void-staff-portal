@@ -634,11 +634,6 @@ function hidePopup() {
   activeAdminModalTargetId = null;
 }
 
-  if (state.maintenance && !canManageMaintenance(verifiedUser)) {
-    showDeniedOverlay("MAINTENANCE");
-    return false;
-  }
-
 function showDeniedOverlay(reason) {
   let title = "Access Denied";
   let message = "You do not have permission to access this portal.";
@@ -747,6 +742,11 @@ async function verifyUser() {
     avatarURL: verifyRes.avatarURL ?? tokenRes.avatarURL ?? ""
   };
 
+    if (state.maintenance && !canManageMaintenance(verifiedUser)) {
+    showDeniedOverlay("MAINTENANCE");
+    return false;
+  }
+  
   state.user = verifiedUser;
 
   const adminTab = getEl("adminTab");
