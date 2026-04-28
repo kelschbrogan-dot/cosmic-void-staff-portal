@@ -1408,6 +1408,232 @@ function setupNav() {
     event.preventDefault();
     await loadAdmin();
   });
+
+  getEl("messagesTab")?.addEventListener("click", async event => {
+    event.preventDefault();
+    await loadMessages();
+  });
+
+  // Setup admin sub-tabs
+  document.querySelectorAll(".admin-tab-button").forEach(button => {
+    button.addEventListener("click", async () => {
+      const tabName = button.dataset.adminTab;
+      
+      // Update active state
+      document.querySelectorAll(".admin-tab-button").forEach(btn => {
+        btn.classList.toggle("active", btn === button);
+      });
+      
+      // Hide all tab contents
+      document.querySelectorAll(".admin-tab-content").forEach(content => {
+        content.classList.add("hidden");
+      });
+      
+      // Show selected tab content
+      const tabElement = getEl(tabName + "Tab");
+      if (tabElement) {
+        tabElement.classList.remove("hidden");
+      }
+      
+      // Load specific tab content
+      if (tabName === "ratings") {
+        await loadAdmin();
+      } else if (tabName === "messages") {
+        await loadAdminMessagesTab();
+      } else if (tabName === "staff") {
+        await loadAdminStaffTab();
+      }
+    });
+  });
+}
+
+async function loadMessages() {
+  showPage("messages");
+  const container = getEl("messagesContainer");
+  if (!container) return;
+  
+  container.innerHTML = '<div class="card"><p>Loading messages...</p></div>';
+  showSpinner();
+  
+  try {
+    const messages = await fetchApi("getMessages", { userId });
+    if (!Array.isArray(messages)) {
+      showError("Failed to load messages");
+      return;
+    }
+    
+    hideSpinner();
+    renderUserMessages(messages);
+  } catch (e) {
+    console.error("Failed to load messages", e);
+    showError("Failed to load messages");
+    hideSpinner();
+  }
+}
+
+function renderUserMessages(messages) {
+  const container = getEl("messagesContainer");
+  if (!messages.length) {
+    container.innerHTML = '<div class="card"><p>No messages yet.</p></div>';
+    return;
+  }
+
+  container.innerHTML = messages.map(msg => {
+    const isRead = msg.readBy && msg.readBy.includes(userId);
+    return `
+      <div class="message-admin-item ${msg.isUrgent ? 'urgent' : ''} ${!isRead ? 'unread' : ''}">
+        <div class="message-admin-header">
+          <div class="message-admin-subject">${escapeHtml(msg.subject)}</div>
+          <div class="message-admin-meta">
+            ${new Date(msg.sentAt).toLocaleDateString()}
+          </div>
+        </div>
+        <div class="message-admin-recipients">
+          <strong>From:</strong> System Message
+        </div>
+        <div style="margin: 12px 0; line-height: 1.5;">${escapeHtml(msg.message).replace(/\n/g, '<br>')}</div>
+        <div class="message-admin-read-status">
+          <div class="message-admin-read-count">
+            Status: ${isRead ? '<span style="color: #10b981;">Read</span>' : '<span style="color: #f59e0b;">Unread</span>'}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function loadAdminMessagesTab() {
+  const container = getEl("adminMessagesContainer");
+  if (!container) return;
+
+  container.innerHTML = '<div class="card"><p>Loading messages...</p></div>';
+  showSpinner();
+
+  try {
+    const messages = await fetchApi("getAllMessages");
+    const staff = await fetchApi("getStaff");
+
+    if (!Array.isArray(messages) || !Array.isArray(staff)) {
+      showError("Failed to load messages");
+      return;
+    }
+
+    hideSpinner();
+    renderAdminMessages(messages, staff, container);
+  } catch (e) {
+    console.error("Messages load failed", e);
+    showError("Failed to load messages");
+    hideSpinner();
+  }
+}
+
+function renderAdminMessages(messages, staff, container) {
+  const staffMap = staff.reduce((map, s) => {
+    map[s.discordId] = s.name;
+    return map;
+  }, {});
+
+  const header = `
+    <div class="messages-admin-header">
+      <h3>All Messages</h3>
+      <button class="send-message-btn">📝 Send Message</button>
+    </div>
+  `;
+
+  if (!messages.length) {
+    container.innerHTML = `${header}<div class="card"><p>No messages sent yet.</p></div>`;
+    return;
+  }
+
+  container.innerHTML = `${header}<div class="messages-list">${messages.map(msg => {
+    const sender = staffMap[msg.senderId] || msg.senderId;
+    const recipients = msg.recipientIds.includes("ALL") ? ["All Staff"] :
+      msg.recipientIds.map(id => staffMap[id] || id);
+
+    const readByNames = msg.readBy.map(id => staffMap[id] || id);
+    const unreadCount = msg.recipientIds.includes("ALL") ?
+      staff.filter(s => isTrue(s.isActive) && !msg.readBy.includes(s.discordId)).length :
+      msg.recipientIds.filter(id => !msg.readBy.includes(id)).length;
+
+    return `
+      <div class="message-admin-item ${msg.isUrgent ? 'urgent' : ''}">
+        <div class="message-admin-header">
+          <div class="message-admin-subject">${escapeHtml(msg.subject)}</div>
+          <div class="message-admin-meta">
+            ${new Date(msg.sentAt).toLocaleDateString()} by ${escapeHtml(sender)}
+          </div>
+        </div>
+        <div class="message-admin-recipients">
+          <strong>To:</strong> ${recipients.map(r => escapeHtml(r)).join(", ")}
+        </div>
+        <div style="margin: 12px 0; line-height: 1.5;">${escapeHtml(msg.message).replace(/\n/g, '<br>')}</div>
+        <div class="message-admin-read-status">
+          <div class="message-admin-read-count">
+            Read by ${readByNames.length} of ${msg.recipientIds.includes("ALL") ? staff.filter(s => isTrue(s.isActive)).length : msg.recipientIds.length} recipients
+          </div>
+          ${readByNames.length > 0 || unreadCount > 0 ? `
+            <div class="message-admin-read-list">
+              ${readByNames.map(name => `<div class="message-admin-read-item read"><div class="message-admin-read-dot read"></div>${escapeHtml(name)}</div>`).join('')}
+              ${Array.from({length: unreadCount}).map(() => '<div class="message-admin-read-item unread"><div class="message-admin-read-dot unread"></div>Loading...</div>').join('')}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }).join('')}</div>`;
+}
+
+async function loadAdminStaffTab() {
+  const container = getEl("adminStaffContainer");
+  if (!container) return;
+
+  container.innerHTML = '<div class="card"><p>Loading staff...</p></div>';
+  showSpinner();
+
+  try {
+    const staff = await fetchApi("getStaff");
+    if (!Array.isArray(staff)) {
+      showError("Failed to load staff");
+      return;
+    }
+
+    hideSpinner();
+    renderAdminStaff(staff, container);
+  } catch (e) {
+    console.error("Staff load failed", e);
+    showError("Failed to load staff");
+    hideSpinner();
+  }
+}
+
+function renderAdminStaff(staff, container) {
+  const activeStaff = staff.filter(s => isTrue(s.isActive));
+  
+  container.innerHTML = `
+    <div style="margin-bottom: 20px; display: flex; gap: 10px;">
+      <button class="admin-list-add-btn" style="background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;">➕ Add Staff</button>
+    </div>
+    <div class="admin-list">
+      ${staff.map(s => `
+        <div class="staff-card ${isTrue(s.isActive) ? "staff-active" : "staff-suspended"}">
+          <div class="staff-card-header">
+            <img src="${escapeHtml(s.avatarURL || '')}" alt="${escapeHtml(s.name)}">
+            <div>
+              <b>${escapeHtml(s.name)}</b>
+              <p class="text-muted">
+                <span class="status-dot ${isTrue(s.isActive) ? "active" : "suspended"}"></span>
+                ${isTrue(s.isActive) ? "Active" : "Suspended"}
+              </p>
+              <span class="role-pill">${escapeHtml(getRoleLabel(getUserRole(s)))}</span>
+            </div>
+          </div>
+          <div class="staff-card-metrics">
+            <div>ID: <strong>${escapeHtml(s.discordId)}</strong></div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
 }
 
 (async function init() {
