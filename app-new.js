@@ -455,6 +455,8 @@ function renderAdmin() {
     const ratingsReceived = memberRatings.length;
     const positiveCount = memberNotes.filter(n => n.type === "Positive").length;
     const negativeCount = memberNotes.filter(n => n.type === "Negative").length;
+    const memberGivenRatings = state.ratings.filter(r => String(r.reviewerId).trim() === targetId);
+    const expectedRatings = activeStaff.length - 1;
 
     return `
       <div class="staff-card" data-id="${targetId}">
@@ -462,7 +464,8 @@ function renderAdmin() {
         <div class="card-body">
           <b>${member.name}</b>
           <p style="margin: 4px 0; opacity: 0.8;">Avg: <span style="color: #3b82f6; font-weight: bold;">${memberAvgRating ? memberAvgRating.toFixed(1) : 'N/A'}</span>/5</p>
-          <p style="margin: 4px 0; opacity: 0.8;"><span style="color: #94a3b8;">${ratingsReceived}</span> ratings</p>
+          <p style="margin: 4px 0; opacity: 0.8;"><span style="color: #94a3b8;">${ratingsReceived}</span> ratings received</p>
+          <p style="margin: 4px 0; opacity: 0.8;"><span style="color: #94a3b8;">${memberGivenRatings.length}/${expectedRatings}</span> ratings given</p>
           <p style="margin: 4px 0; opacity: 0.8;">👍${positiveCount} / 👎${negativeCount}</p>
         </div>
       </div>`;
@@ -496,9 +499,8 @@ async function openAdminStaffModal(targetId) {
   const notes = getAdminTargetNotes(targetId);
 
   const ratingsHtml = ratings.length ? ratings.map(r => `
-      <div class="review-card">
-        <b>${getReviewerName(r.reviewerId)}</b>
-        <small>Rating: ${r.rating}</small>
+      <div class="note-item">
+        <small>⭐ ${getReviewerName(r.reviewerId)} - ${r.rating}</small>
         <p>${String(r.comment || "").trim() || "No comment."}</p>
       </div>
     `).join("") : "<p>No ratings yet.</p>";
