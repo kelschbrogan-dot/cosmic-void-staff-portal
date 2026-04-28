@@ -6,7 +6,7 @@ const token = params.get("token");
 // ========== MAINTENANCE MODE ==========
 // Set to true to put the portal in maintenance mode
 // Set to false to allow normal access
-const MAINTENANCE_MODE = true;
+const MAINTENANCE_MODE = false;
 // =====================================
 
 // ========== AVAILABLE MONTHS ==========
