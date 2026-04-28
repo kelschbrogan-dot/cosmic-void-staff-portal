@@ -2016,7 +2016,7 @@ async function openAdminStaffModal(targetId) {
         featuredEmoji: isFeatured ? (pinnedEmoji || "\u{1F31F}") : pinnedEmoji
       }
     });
-      console.log("Received ID:", d.discordId);
+console.log("Received ID:", result?.discordId);
 
 for (let i = 1; i < staffData.length; i++) {
   console.log("Sheet row ID:", staffData[i][0]);
