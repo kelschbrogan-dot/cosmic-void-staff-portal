@@ -278,21 +278,19 @@ async function verifyUser() {
     return false;
   }
 
-  const role = getUserRole(verifyRes);
+const verifiedUser = {
+  discordId: userId,
+  isWebAdmin: verifyRes.isWebAdmin,
+  name: verifyRes.name,
+  avatarURL: verifyRes.avatarURL
+};
 
-  const maintenanceAllowed = ["DEVELOPER", "ADMINISTRATOR"].includes(role);
+if (state.maintenance && !canManageMaintenance(verifiedUser)) {
+  showDeniedOverlay("MAINTENANCE");
+  return false;
+}
 
-  if (state.maintenance && !maintenanceAllowed) {
-    showDeniedOverlay("MAINTENANCE");
-    return false;
-  }
-
-  state.user = {
-    discordId: userId,
-    isWebAdmin: verifyRes.isWebAdmin,
-    name: verifyRes.name,
-    avatarURL: verifyRes.avatarURL
-  };
+state.user = verifiedUser;
 
   return true;
 }
