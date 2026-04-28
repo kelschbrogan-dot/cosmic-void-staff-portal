@@ -18,6 +18,13 @@ const state = {
   maintenance: false
 };
 
+const noteDrafts = new Map();
+const adminStaffNoteDrafts = new Map();
+const openReviewNoteSections = new Set();
+const pendingNoteSaves = new Set();
+let optimisticNoteSequence = 0;
+let activeAdminModalTargetId = null;
+
 function getCurrentMonth() {
   return new Date().toISOString().slice(0, 7);
 }
@@ -101,7 +108,7 @@ function getRoleLabel(role) {
     case "ADMINISTRATOR":
       return "Administrator";
     case "ADMIN":
-      return "Admin";
+      return "Moderator";
     default:
       return "Member";
   }
@@ -194,12 +201,98 @@ function stripNotePrefixes(noteText) {
   return text;
 }
 
+function getNoteTimestamp(note) {
+  const parsed = Date.parse(note?.updatedAt || "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function sortNotesForDisplay(notes) {
   return [...notes].sort((a, b) => {
     const staffPriority = Number(isStaffNoteText(b.note)) - Number(isStaffNoteText(a.note));
     if (staffPriority !== 0) return staffPriority;
+    const updatedAtDiff = getNoteTimestamp(b) - getNoteTimestamp(a);
+    if (updatedAtDiff !== 0) return updatedAtDiff;
     return String(getReviewerName(a.reviewerId)).localeCompare(String(getReviewerName(b.reviewerId)));
   });
+}
+
+function getNoteSaveKey(scope, targetId) {
+  return `${scope}:${String(targetId).trim()}`;
+}
+
+function getReviewNoteDraft(targetId) {
+  return noteDrafts.get(String(targetId).trim()) || {
+    type: "Positive",
+    text: "",
+    anonymous: false
+  };
+}
+
+function setReviewNoteDraft(targetId, updates) {
+  const key = String(targetId).trim();
+  noteDrafts.set(key, { ...getReviewNoteDraft(key), ...updates });
+}
+
+function clearReviewNoteDraft(targetId) {
+  noteDrafts.delete(String(targetId).trim());
+}
+
+function getAdminStaffNoteDraft(targetId) {
+  return adminStaffNoteDrafts.get(String(targetId).trim()) || {
+    type: "Positive",
+    text: ""
+  };
+}
+
+function setAdminStaffNoteDraft(targetId, updates) {
+  const key = String(targetId).trim();
+  adminStaffNoteDrafts.set(key, { ...getAdminStaffNoteDraft(key), ...updates });
+}
+
+function clearAdminStaffNoteDraft(targetId) {
+  adminStaffNoteDrafts.delete(String(targetId).trim());
+}
+
+function createOptimisticNote({ reviewerId, targetId, type, note }) {
+  return {
+    month: state.month,
+    reviewerId: String(reviewerId).trim(),
+    targetId: String(targetId).trim(),
+    type: String(type || "Positive").trim() || "Positive",
+    note: String(note || "").trim(),
+    updatedAt: new Date().toISOString(),
+    pending: true,
+    localId: `local-note-${Date.now()}-${optimisticNoteSequence++}`
+  };
+}
+
+function addOptimisticNote(note) {
+  state.notes = [...state.notes, note];
+  return note;
+}
+
+function finalizeOptimisticNote(note) {
+  let found = false;
+
+  state.notes = state.notes.map(currentNote => {
+    if (currentNote.localId !== note.localId) return currentNote;
+    found = true;
+    return { ...currentNote, pending: false };
+  });
+
+  if (!found) {
+    state.notes = [...state.notes, { ...note, pending: false }];
+  }
+}
+
+function removeOptimisticNote(localId) {
+  state.notes = state.notes.filter(note => note.localId !== localId);
+}
+
+function refreshAdminStaffModal(targetId) {
+  if (activeAdminModalTargetId === String(targetId).trim()) {
+    openAdminStaffModal(targetId);
+  }
 }
 
 function getReviewerName(reviewerId) {
@@ -298,6 +391,7 @@ function hidePopup() {
   overlay.setAttribute("aria-hidden", "true");
   bodyEl.innerHTML = "";
   actionsEl.innerHTML = "";
+  activeAdminModalTargetId = null;
 }
 
 function showDeniedOverlay(reason) {
@@ -570,6 +664,10 @@ function buildNoteHtml(note) {
     badges.push(`<span class="staff-note-badge">[STAFF]</span>`);
   }
 
+  if (note.pending) {
+    badges.push(`<span class="note-badge pending-note-badge">Saving...</span>`);
+  }
+
   badges.push(
     `<span class="note-badge ${note.type === "Negative" ? "negative" : "positive"}">${escapeHtml(note.type || "Note")}</span>`
   );
@@ -579,7 +677,7 @@ function buildNoteHtml(note) {
   }
 
   return `
-    <div class="note-item ${noteToneClass}${anonymous ? " anonymous-note" : ""}${staffNote ? " staff-note" : ""}">
+    <div class="note-item ${noteToneClass}${anonymous ? " anonymous-note" : ""}${staffNote ? " staff-note" : ""}${note.pending ? " pending-note" : ""}">
       <div class="note-meta">
         <div class="note-badge-row">${badges.join("")}</div>
         <small>${escapeHtml(reviewerName)}</small>
@@ -669,6 +767,9 @@ function renderReviews() {
       )
     );
     const completed = getReviewCompletion(member);
+    const noteDraft = getReviewNoteDraft(targetId);
+    const noteSectionOpen = openReviewNoteSections.has(targetId);
+    const noteSavePending = pendingNoteSaves.has(getNoteSaveKey("review", targetId));
 
     const notesHtml = myNotes.length
       ? myNotes.map(note => buildNoteHtml(note)).join("")
@@ -691,24 +792,26 @@ function renderReviews() {
           </select>
           <textarea data-id="${escapeHtml(targetId)}" placeholder="Leave a comment... (Optional)" class="review-comment-textarea">${escapeHtml(currentRating?.comment || "")}</textarea>
           <div class="note-summary">
-            <button type="button" class="toggle-notes-header" data-target-id="${escapeHtml(targetId)}">
+            <button type="button" class="toggle-notes-header${noteSectionOpen ? " open" : ""}" data-target-id="${escapeHtml(targetId)}">
               <span>My notes (${myNotes.length})</span>
               <span class="toggle-icon">v</span>
             </button>
-            <div class="toggle-notes-body hidden" id="notes-${escapeHtml(targetId)}">
+            <div class="toggle-notes-body${noteSectionOpen ? "" : " hidden"}" id="notes-${escapeHtml(targetId)}">
               <div class="stack-list">${notesHtml}</div>
               <label for="noteType-${escapeHtml(targetId)}">New note type</label>
               <select id="noteType-${escapeHtml(targetId)}" data-note-id="${escapeHtml(targetId)}">
-                <option value="Positive">Positive</option>
-                <option value="Negative">Negative</option>
+                <option value="Positive" ${noteDraft.type === "Positive" ? "selected" : ""}>Positive</option>
+                <option value="Negative" ${noteDraft.type === "Negative" ? "selected" : ""}>Negative</option>
               </select>
               <label for="noteInput-${escapeHtml(targetId)}">Add a note</label>
-              <textarea id="noteInput-${escapeHtml(targetId)}" data-note-id="${escapeHtml(targetId)}" rows="3" placeholder="Add a note about this staff member..."></textarea>
+              <textarea id="noteInput-${escapeHtml(targetId)}" data-note-id="${escapeHtml(targetId)}" rows="3" placeholder="Add a note about this staff member...">${escapeHtml(noteDraft.text)}</textarea>
               <label for="anon-${escapeHtml(targetId)}" class="checkbox-row">
-                <input type="checkbox" id="anon-${escapeHtml(targetId)}" data-anon-id="${escapeHtml(targetId)}">
+                <input type="checkbox" id="anon-${escapeHtml(targetId)}" data-anon-id="${escapeHtml(targetId)}" ${noteDraft.anonymous ? "checked" : ""}>
                 Submit anonymously
               </label>
-              <button class="save-note-button" data-note-id="${escapeHtml(targetId)}" type="button">Add Note</button>
+              <button class="save-note-button" data-note-id="${escapeHtml(targetId)}" type="button" ${noteSavePending ? "disabled" : ""}>
+                ${noteSavePending ? "Saving..." : "Add Note"}
+              </button>
             </div>
           </div>
         </div>
@@ -742,6 +845,35 @@ function renderReviews() {
       if (!body) return;
       const isHidden = body.classList.toggle("hidden");
       button.classList.toggle("open", !isHidden);
+      if (isHidden) {
+        openReviewNoteSections.delete(targetId);
+      } else {
+        openReviewNoteSections.add(targetId);
+      }
+    });
+  });
+
+  document.querySelectorAll("#reviewsBox select[data-note-id]").forEach(element => {
+    element.addEventListener("change", () => {
+      const targetId = element.dataset.noteId;
+      if (!targetId) return;
+      setReviewNoteDraft(targetId, { type: element.value });
+    });
+  });
+
+  document.querySelectorAll("#reviewsBox textarea[data-note-id]").forEach(element => {
+    element.addEventListener("input", () => {
+      const targetId = element.dataset.noteId;
+      if (!targetId) return;
+      setReviewNoteDraft(targetId, { text: element.value });
+    });
+  });
+
+  document.querySelectorAll("#reviewsBox input[data-anon-id]").forEach(element => {
+    element.addEventListener("change", () => {
+      const targetId = element.dataset.anonId;
+      if (!targetId) return;
+      setReviewNoteDraft(targetId, { anonymous: element.checked });
     });
   });
 
@@ -749,7 +881,7 @@ function renderReviews() {
     button.addEventListener("click", async () => {
       if (button.disabled) return;
       const targetId = button.dataset.noteId;
-      if (targetId) await saveNoteForTarget(targetId, button);
+      if (targetId) await saveNoteForTarget(targetId);
     });
   });
 }
@@ -801,7 +933,7 @@ function renderAdminControls() {
   const canMaintain = canManageMaintenance(state.user);
   const canAddNewAdmins = canAddAdmins(state.user);
 
-  let html = `<button id="adminAddStaffBtn" type="button">Add New Staff</button>`;
+  let html = `<button id="adminAddStaffBtn" type="button">Add Staff Member</button>`;
 
   if (canMaintain) {
     html += `
@@ -840,10 +972,10 @@ async function toggleMaintenance(enabled) {
   hideSpinner();
 
   if (enabled) {
-    showPopup("Maintenance Enabled", "<p>Portal is now in maintenance mode. Only Web Admins can access it.</p>", [
+    showPopup("Maintenance Enabled", "<p>Portal is now in maintenance mode. Only administrators and developers can access it.</p>", [
       {
         id: "maintenanceAdminBtn",
-        text: "Back to Admin Panel",
+        text: "Back to Moderator Panel",
         callback: () => {
           hidePopup();
           loadAdmin();
@@ -869,7 +1001,7 @@ async function openAddStaffModal() {
     <label for="newRole">Role</label>
     <select id="newRole">
       <option value="FALSE">Member</option>
-      <option value="TRUE">Admin</option>
+      <option value="TRUE">Moderator</option>
       ${canAddNewAdmins ? '<option value="ADMINISTRATOR">Administrator</option>' : ""}
       ${canAddNewAdmins ? '<option value="DEVELOPER">Developer</option>' : ""}
     </select>
@@ -930,9 +1062,12 @@ function getAdminTargetRatings(targetId) {
 }
 
 async function saveAdminStaffNote(targetId) {
-  const type = getEl("adminStaffNoteType")?.value || "Positive";
-  const noteInput = getEl("adminStaffNoteInput");
-  let noteText = noteInput?.value.trim() || "";
+  const saveKey = getNoteSaveKey("moderator", targetId);
+  if (pendingNoteSaves.has(saveKey)) return;
+
+  const draft = getAdminStaffNoteDraft(targetId);
+  const type = draft.type || "Positive";
+  let noteText = draft.text.trim();
 
   if (!noteText) {
     showStatus("Enter a staff note before saving.");
@@ -943,8 +1078,18 @@ async function saveAdminStaffNote(targetId) {
     noteText = `[STAFF] ${noteText}`;
   }
 
+  pendingNoteSaves.add(saveKey);
+
+  const optimisticNote = addOptimisticNote(createOptimisticNote({
+    reviewerId: userId,
+    targetId,
+    type,
+    note: noteText.trim()
+  }));
+
+  clearAdminStaffNoteDraft(targetId);
   showStatus("Saving staff note...");
-  showSpinner();
+  refreshAdminStaffModal(targetId);
 
   const result = await fetchApi("saveNotes", {
     month: state.month,
@@ -954,22 +1099,26 @@ async function saveAdminStaffNote(targetId) {
     note: noteText.trim()
   });
 
-  if (!result) {
-    showError("Failed to save staff note.");
+  pendingNoteSaves.delete(saveKey);
+
+  if (!result || result.success === false) {
+    removeOptimisticNote(optimisticNote.localId);
+    setAdminStaffNoteDraft(targetId, { type, text: stripNotePrefixes(noteText) });
+    refreshAdminStaffModal(targetId);
+    showStatus("Failed to save staff note.", "error");
     return;
   }
 
-  const notes = await fetchApi("getNotes", { month: state.month });
-  state.notes = Array.isArray(notes) ? notes : state.notes;
-
-  hideSpinner();
+  finalizeOptimisticNote(optimisticNote);
+  refreshAdminStaffModal(targetId);
   showStatus("Staff note saved.");
-  openAdminStaffModal(targetId);
 }
 
 async function openAdminStaffModal(targetId) {
   const member = state.staff.find(staffMember => String(staffMember.discordId).trim() === String(targetId).trim());
   if (!member) return;
+
+  activeAdminModalTargetId = String(targetId).trim();
 
   const ratings = getAdminTargetRatings(targetId);
   const notes = sortNotesForDisplay(getAdminTargetNotes(targetId));
@@ -988,6 +1137,8 @@ async function openAdminStaffModal(targetId) {
     rating.rating !== "N/A"
   ).length;
   const canAddNewAdmins = canAddAdmins(state.user);
+  const adminNoteDraft = getAdminStaffNoteDraft(targetId);
+  const staffNoteSavePending = pendingNoteSaves.has(getNoteSaveKey("moderator", targetId));
 
   const ratingsHtml = buildRatingsHtml(ratings);
   const staffNotesHtml = staffNotes.length
@@ -1034,7 +1185,7 @@ async function openAdminStaffModal(targetId) {
             <div class="mini-stat">
               <b>Staff Notes</b>
               <div class="stat-value">${staffNotes.length}</div>
-              <div class="stat-subtext">pinned admin notes</div>
+              <div class="stat-subtext">pinned moderator notes</div>
             </div>
             <div class="mini-stat">
               <b>Positive Ratings</b>
@@ -1060,12 +1211,14 @@ async function openAdminStaffModal(targetId) {
         <div class="accordion-content">
           <label for="adminStaffNoteType">Pinned note type</label>
           <select id="adminStaffNoteType">
-            <option value="Positive">Positive</option>
-            <option value="Negative">Negative</option>
+            <option value="Positive" ${adminNoteDraft.type === "Positive" ? "selected" : ""}>Positive</option>
+            <option value="Negative" ${adminNoteDraft.type === "Negative" ? "selected" : ""}>Negative</option>
           </select>
           <label for="adminStaffNoteInput">Pinned note</label>
-          <textarea id="adminStaffNoteInput" rows="4" placeholder="[STAFF] Add an admin-only note for this user, including suspended staff."></textarea>
-          <button id="adminAddStaffNoteBtn" class="primary-button" type="button">Save Staff Note</button>
+          <textarea id="adminStaffNoteInput" rows="4" placeholder="[STAFF] Add a moderator-only note for this user, including suspended staff.">${escapeHtml(adminNoteDraft.text)}</textarea>
+          <button id="adminAddStaffNoteBtn" class="primary-button" type="button" ${staffNoteSavePending ? "disabled" : ""}>
+            ${staffNoteSavePending ? "Saving Staff Note..." : "Save Staff Note"}
+          </button>
           <div class="stack-list">${staffNotesHtml}</div>
         </div>
       </details>
@@ -1090,7 +1243,7 @@ async function openAdminStaffModal(targetId) {
             <label for="adminUserRole">Role</label>
             <select id="adminUserRole">
               <option value="FALSE" ${memberRole === "MEMBER" ? "selected" : ""}>Member</option>
-              <option value="TRUE" ${memberRole === "ADMIN" ? "selected" : ""}>Admin</option>
+              <option value="TRUE" ${memberRole === "ADMIN" ? "selected" : ""}>Moderator</option>
               <option value="ADMINISTRATOR" ${memberRole === "ADMINISTRATOR" ? "selected" : ""}>Administrator</option>
               <option value="DEVELOPER" ${memberRole === "DEVELOPER" ? "selected" : ""}>Developer</option>
             </select>
@@ -1107,9 +1260,17 @@ async function openAdminStaffModal(targetId) {
     </div>
   `;
 
-  showPopup(`Manage: ${member.name}`, html, [
+  showPopup(`Moderate: ${member.name}`, html, [
     { id: "adminCloseUserBtn", text: "Close", secondary: true, callback: hidePopup }
   ]);
+
+  getEl("adminStaffNoteType")?.addEventListener("change", event => {
+    setAdminStaffNoteDraft(targetId, { type: event.target.value });
+  });
+
+  getEl("adminStaffNoteInput")?.addEventListener("input", event => {
+    setAdminStaffNoteDraft(targetId, { text: event.target.value });
+  });
 
   getEl("adminAddStaffNoteBtn")?.addEventListener("click", async () => {
     await saveAdminStaffNote(targetId);
@@ -1179,27 +1340,35 @@ async function openAdminStaffModal(targetId) {
   });
 }
 
-async function saveNoteForTarget(targetId, button) {
-  const noteTypeElement = document.querySelector(`#reviewsBox select[data-note-id='${targetId}']`);
-  const noteTextElement = document.querySelector(`#reviewsBox textarea[data-note-id='${targetId}']`);
-  const anonCheckbox = document.querySelector(`#reviewsBox input[data-anon-id='${targetId}']`);
-  const noteType = noteTypeElement?.value || "Positive";
-  let noteText = noteTextElement?.value || "";
+async function saveNoteForTarget(targetId) {
+  const saveKey = getNoteSaveKey("review", targetId);
+  if (pendingNoteSaves.has(saveKey)) return;
+
+  const draft = getReviewNoteDraft(targetId);
+  const noteType = draft.type || "Positive";
+  let noteText = draft.text || "";
 
   if (!noteText.trim()) {
     showStatus("Please enter a note before saving.");
     return;
   }
 
-  if (anonCheckbox?.checked) {
+  if (draft.anonymous && !isAnonymousNoteText(noteText)) {
     noteText = `[ANON]${noteText}`;
   }
 
-  if (button) {
-    button.disabled = true;
-    button.textContent = "Saving...";
-  }
+  pendingNoteSaves.add(saveKey);
+  openReviewNoteSections.add(String(targetId).trim());
 
+  const optimisticNote = addOptimisticNote(createOptimisticNote({
+    reviewerId: userId,
+    targetId,
+    type: noteType,
+    note: noteText.trim()
+  }));
+
+  clearReviewNoteDraft(targetId);
+  renderReviews();
   showStatus("Saving note...");
 
   const result = await fetchApi("saveNotes", {
@@ -1210,21 +1379,21 @@ async function saveNoteForTarget(targetId, button) {
     note: noteText.trim()
   });
 
-  if (!result) {
-    showError("Failed to save note.");
-    if (button) {
-      button.disabled = false;
-      button.textContent = "Add Note";
-    }
+  pendingNoteSaves.delete(saveKey);
+
+  if (!result || result.success === false) {
+    removeOptimisticNote(optimisticNote.localId);
+    setReviewNoteDraft(targetId, {
+      type: noteType,
+      text: draft.text,
+      anonymous: draft.anonymous
+    });
+    renderReviews();
+    showStatus("Failed to save note.", "error");
     return;
   }
 
-  const notes = await fetchApi("getNotes", { month: state.month });
-  state.notes = Array.isArray(notes) ? notes : state.notes;
-
-  if (noteTextElement) noteTextElement.value = "";
-  if (anonCheckbox) anonCheckbox.checked = false;
-
+  finalizeOptimisticNote(optimisticNote);
   renderReviews();
   showStatus("Note saved.");
 }
@@ -1256,12 +1425,12 @@ async function loadReviews() {
 
 async function loadAdmin() {
   if (!state.user || !isAdmin(state.user)) {
-    showError("Admin access required.");
+    showError("Moderator access required.");
     return;
   }
 
   showPage("admin");
-  showStatus("Loading admin dashboard...");
+  showStatus("Loading moderator dashboard...");
   showSpinner();
 
   await refreshStaff();
@@ -1275,7 +1444,7 @@ async function loadAdmin() {
   renderAdminControls();
   renderAdmin();
   hideSpinner();
-  showStatus("Admin dashboard loaded.");
+  showStatus("Moderator dashboard loaded.");
 }
 
 function renderAdmin() {
