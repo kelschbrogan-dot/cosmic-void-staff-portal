@@ -141,6 +141,39 @@ function canSendMessages(user) {
   return isAdmin(user);
 }
 
+function normalizeFeaturedEmoji(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  return [...normalized].slice(0, 4).join("").trim();
+}
+
+function isFeaturedStaff(member) {
+  return isTrue(member?.isFeatured);
+}
+
+function getFeaturedEmoji(member) {
+  return normalizeFeaturedEmoji(member?.featuredEmoji) || "\u{1F31F}";
+}
+
+function buildFeaturedBadgeHtml(member, label = "Staff of the Month") {
+  if (!isFeaturedStaff(member)) return "";
+  return `<span class="featured-badge">${escapeHtml(getFeaturedEmoji(member))} ${escapeHtml(label)}</span>`;
+}
+
+function compareStaffForDisplay(a, b) {
+  const featuredDiff = Number(isFeaturedStaff(b)) - Number(isFeaturedStaff(a));
+  if (featuredDiff !== 0) return featuredDiff;
+
+  const activeDiff = Number(isTrue(b?.isActive)) - Number(isTrue(a?.isActive));
+  if (activeDiff !== 0) return activeDiff;
+
+  return String(a?.name || "").localeCompare(String(b?.name || ""));
+}
+
+function sortStaffForDisplay(staff = []) {
+  return [...staff].sort(compareStaffForDisplay);
+}
+
 function mapRatingToNumber(value) {
   const normalized = String(value || "").trim().toLowerCase();
   const lookup = {
@@ -540,7 +573,9 @@ function getReviewerName(reviewerId) {
 }
 
 function getReviewTargets() {
-  return state.staff.filter(member => member && isTrue(member.isActive) && String(member.discordId).trim() !== String(userId).trim());
+  return sortStaffForDisplay(
+    state.staff.filter(member => member && isTrue(member.isActive) && String(member.discordId).trim() !== String(userId).trim())
+  );
 }
 
 function getMyRatings() {
@@ -1390,6 +1425,9 @@ function renderReviews() {
 
   const otherCardsHtml = filteredStaff.length ? filteredStaff.map(member => {
     const targetId = String(member.discordId).trim();
+    const featured = isFeaturedStaff(member);
+    const featuredBadgeHtml = buildFeaturedBadgeHtml(member);
+    const featuredEmoji = featured ? getFeaturedEmoji(member) : "";
     const currentRating = state.ratings.find(rating =>
       String(rating.targetId).trim() === targetId &&
       String(rating.reviewerId).trim() === String(userId).trim()
@@ -1411,11 +1449,18 @@ function renderReviews() {
       : `<div class="empty-state">No notes yet.</div>`;
 
     return `
-      <div class="card staff-review-card" data-id="${escapeHtml(targetId)}">
+      <div
+        class="card staff-review-card${featured ? " staff-review-card-featured" : ""}"
+        data-id="${escapeHtml(targetId)}"
+        ${featured ? `data-feature-emoji="${escapeHtml(featuredEmoji)}"` : ""}
+      >
         <img src="${escapeHtml(member.avatarURL || "")}" alt="${escapeHtml(member.name)}">
         <div class="card-body">
           <div class="review-card-header">
-            <b>${escapeHtml(member.name)}</b>
+            <div class="review-card-title">
+              <b>${escapeHtml(member.name)}</b>
+              ${featuredBadgeHtml}
+            </div>
             <span class="review-status ${completed ? "complete" : "incomplete"}">
               ${completed ? "Complete" : "Incomplete"}
             </span>
@@ -1780,6 +1825,9 @@ async function openAdminStaffModal(targetId) {
   const canAddNewAdmins = canAddAdmins(state.user);
   const adminNoteDraft = getAdminStaffNoteDraft(targetId);
   const staffNoteSavePending = pendingNoteSaves.has(getNoteSaveKey("moderator", targetId));
+  const featured = isFeaturedStaff(member);
+  const featuredEmoji = featured ? getFeaturedEmoji(member) : normalizeFeaturedEmoji(member?.featuredEmoji);
+  const featuredBadgeHtml = buildFeaturedBadgeHtml(member);
 
   const ratingsHtml = buildRatingsHtml(ratings);
   const staffNotesHtml = staffNotes.length
@@ -1800,6 +1848,7 @@ async function openAdminStaffModal(targetId) {
           <span class="review-status ${isTrue(member.isActive) ? "complete" : "incomplete"}">
             ${isTrue(member.isActive) ? "Active" : "Suspended"}
           </span>
+          ${featuredBadgeHtml}
         </div>
       </div>
     </div>
@@ -1888,6 +1937,13 @@ async function openAdminStaffModal(targetId) {
               <option value="ADMINISTRATOR" ${memberRole === "ADMINISTRATOR" ? "selected" : ""}>Administrator</option>
               <option value="DEVELOPER" ${memberRole === "DEVELOPER" ? "selected" : ""}>Developer</option>
             </select>
+            <label for="adminUserFeatured" class="checkbox-row">
+              <input type="checkbox" id="adminUserFeatured" ${featured ? "checked" : ""}>
+              Pin this staff member to the top of reviews and moderator view
+            </label>
+            <label for="adminUserFeaturedEmoji">Featured emoji</label>
+            <input id="adminUserFeaturedEmoji" type="text" value="${escapeHtml(featuredEmoji)}" placeholder="&#x1F31F;" maxlength="8">
+            <small class="form-hint">Shown as the background accent when this person is pinned.</small>
           ` : `
             <div class="role-pill">${escapeHtml(getRoleLabel(memberRole))}</div>
           `}
@@ -1917,12 +1973,29 @@ async function openAdminStaffModal(targetId) {
     await saveAdminStaffNote(targetId);
   });
 
+  const featuredToggle = getEl("adminUserFeatured");
+  const featuredEmojiInput = getEl("adminUserFeaturedEmoji");
+  const syncFeaturedInputs = () => {
+    if (!featuredEmojiInput) return;
+    const enabled = featuredToggle?.checked || false;
+    featuredEmojiInput.disabled = !enabled;
+    featuredEmojiInput.classList.toggle("input-disabled", !enabled);
+    if (enabled && !featuredEmojiInput.value.trim()) {
+      featuredEmojiInput.value = getFeaturedEmoji(member);
+    }
+  };
+
+  featuredToggle?.addEventListener("change", syncFeaturedInputs);
+  syncFeaturedInputs();
+
   getEl("adminSaveUserBtn")?.addEventListener("click", async () => {
     const name = getEl("adminUserName")?.value.trim();
     const avatarURL = getEl("adminUserAvatar")?.value.trim();
     const isActive = getEl("adminUserActive")?.checked || false;
     const roleSelect = getEl("adminUserRole");
     const isWebAdmin = roleSelect ? roleSelect.value : member.isWebAdmin;
+    const isFeatured = featuredToggle?.checked || false;
+    const pinnedEmoji = normalizeFeaturedEmoji(featuredEmojiInput?.value || "");
 
     if (!name) {
       showStatus("Display name cannot be empty.");
@@ -1934,7 +2007,14 @@ async function openAdminStaffModal(targetId) {
 
     const result = await fetchApi("updateStaff", {
       discordId: targetId,
-      updates: { name, avatarURL, isActive, isWebAdmin }
+      updates: {
+        name,
+        avatarURL,
+        isActive,
+        isWebAdmin,
+        isFeatured,
+        featuredEmoji: isFeatured ? (pinnedEmoji || "\u{1F31F}") : pinnedEmoji
+      }
     });
 
     hideSpinner();
@@ -2041,7 +2121,13 @@ async function saveNoteForTarget(targetId) {
 
 async function refreshStaff() {
   const staff = await fetchApi("getStaff");
-  state.staff = Array.isArray(staff) ? staff : state.staff;
+  state.staff = Array.isArray(staff)
+    ? staff.map(member => ({
+      ...member,
+      isFeatured: isFeaturedStaff(member),
+      featuredEmoji: normalizeFeaturedEmoji(member?.featuredEmoji)
+    }))
+    : state.staff;
 }
 
 async function loadReviews() {
@@ -2103,7 +2189,7 @@ function renderAdmin() {
   const adminList = getEl("adminList");
   if (!statsBox || !adminMessages || !adminList) return;
 
-  const allStaff = state.staff;
+  const allStaff = sortStaffForDisplay(state.staff);
   const activeStaff = state.staff.filter(member => isTrue(member.isActive));
   const ratingCount = state.ratings.filter(rating => rating.rating && rating.rating !== "N/A").length;
   const standardNotes = getStandardNotes(state.notes);
@@ -2154,9 +2240,16 @@ function renderAdmin() {
     const memberRole = getRoleLabel(getUserRole(member));
     const isActiveMember = isTrue(member.isActive);
     const expectedRatings = isActiveMember ? Math.max(activeStaff.length - 1, 0) : 0;
+    const featured = isFeaturedStaff(member);
+    const featuredEmoji = featured ? getFeaturedEmoji(member) : "";
+    const featuredBadgeHtml = buildFeaturedBadgeHtml(member);
 
     return `
-      <div class="staff-card ${isActiveMember ? "staff-active" : "staff-suspended"}" data-id="${escapeHtml(targetId)}">
+      <div
+        class="staff-card ${isActiveMember ? "staff-active" : "staff-suspended"}${featured ? " staff-card-featured" : ""}"
+        data-id="${escapeHtml(targetId)}"
+        ${featured ? `data-feature-emoji="${escapeHtml(featuredEmoji)}"` : ""}
+      >
         <div class="staff-card-header">
           <img src="${escapeHtml(member.avatarURL || "")}" alt="${escapeHtml(member.name)}">
           <div>
@@ -2165,7 +2258,10 @@ function renderAdmin() {
               <span class="status-dot ${isActiveMember ? "active" : "suspended"}"></span>
               ${isActiveMember ? "Active" : "Suspended"}
             </p>
-            <span class="role-pill">${escapeHtml(memberRole)}</span>
+            <div class="note-badge-row">
+              <span class="role-pill">${escapeHtml(memberRole)}</span>
+              ${featuredBadgeHtml}
+            </div>
           </div>
         </div>
         <div class="staff-card-metrics">
