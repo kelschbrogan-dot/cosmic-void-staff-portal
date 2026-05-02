@@ -5,27 +5,23 @@ const RATINGS_TAB = "Ratings";
 const NOTES_TAB = "Notes";
 const MESSAGES_TAB = "Messages";
 
-// ---------------- SHEET HELPERS ----------------
-
-function sheet(name){
+function sheet(name) {
   return SpreadsheetApp.openById(SHEET_ID).getSheetByName(name);
 }
 
-function json(data){
+function json(data) {
   return ContentService
     .createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-function parse(e){
+function parse(e) {
   try {
     return JSON.parse(e.postData.contents);
-  } catch {
+  } catch (error) {
     return {};
   }
 }
-
-// ---------------- NORMALIZERS ----------------
 
 function normalizeMonth(value) {
   if (value instanceof Date) {
@@ -42,52 +38,89 @@ function isTrue(value) {
   return value === true || String(value || "").trim().toLowerCase() === "true";
 }
 
-// ---------------- STAFF ----------------
+function setPlainTextValue(range, value) {
+  range.setNumberFormat("@");
+  range.setValue(String(value || ""));
+}
 
-function getStaff(){
+function appendRowWithTextColumns(targetSheet, rowValues, textColumns) {
+  targetSheet.appendRow(rowValues);
+  const rowIndex = targetSheet.getLastRow();
+
+  (textColumns || []).forEach(columnNumber => {
+    if (!columnNumber) return;
+    setPlainTextValue(targetSheet.getRange(rowIndex, columnNumber), rowValues[columnNumber - 1]);
+  });
+
+  return rowIndex;
+}
+
+function normalizeAdminRole(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (!normalized) return "FALSE";
+  if (normalized.includes("DEVELOPER")) return "DEVELOPER";
+  if (normalized.includes("ADMINISTRATOR")) return "ADMINISTRATOR";
+  if (normalized.includes("ADMIN")) return "TRUE";
+  if (["TRUE", "YES", "1"].includes(normalized)) return "TRUE";
+  return "FALSE";
+}
+
+function normalizeFeaturedEmoji(value) {
+  return String(value || "").trim();
+}
+
+function ensureHeaderColumn(targetSheet, headers, headerName) {
+  const existingIndex = headers.indexOf(headerName);
+  if (existingIndex >= 0) return existingIndex;
+
+  const nextIndex = headers.length;
+  targetSheet.getRange(1, nextIndex + 1).setValue(headerName);
+  headers.push(headerName);
+  return nextIndex;
+}
+
+function getStaff() {
   const data = sheet(STAFF_TAB).getDataRange().getValues();
   const headers = data.shift();
 
-  return data.map(row=>{
-    let obj={};
-    headers.forEach((h,i)=>obj[h]=row[i]);
+  return data.map(row => {
+    const obj = {};
+    headers.forEach((header, index) => {
+      obj[header] = row[index];
+    });
     return obj;
   });
 }
 
-function getUser(id){
-  return getStaff().find(u=>String(u.discordId)===String(id));
+function getUser(id) {
+  return getStaff().find(user => String(user.discordId) === String(id));
 }
 
-// ---------------- 🔑 TOKEN ----------------
-
-function getToken(d){
+function getToken(d) {
   const user = getUser(d.discordId);
 
-  if(!user){
+  if (!user) {
     return json({
-      success:false,
-      error:"USER_NOT_FOUND"
+      success: false,
+      error: "USER_NOT_FOUND"
     });
   }
 
   return json({
-    success:true,
+    success: true,
     token: user.secretToken,
     isActive: isTrue(user.isActive),
-    isWebAdmin: isTrue(user.isWebAdmin),
+    isWebAdmin: normalizeAdminRole(user.isWebAdmin),
     name: user.name,
     avatarURL: user.avatarURL
   });
 }
 
-// ---------------- VERIFY ----------------
-
-function verifyUser(d){
+function verifyUser(d) {
   const user = getUser(d.discordId);
 
-  if(!user){
-    return json({ valid:false });
+  if (!user) {
+    return json({ valid: false });
   }
 
   const ok =
@@ -96,19 +129,16 @@ function verifyUser(d){
 
   return json({
     valid: ok,
-    isWebAdmin: isTrue(user.isWebAdmin)
+    isWebAdmin: normalizeAdminRole(user.isWebAdmin)
   });
 }
 
-// ---------------- RATINGS ----------------
-
-function getRatings(d){
+function getRatings(d) {
   const rows = sheet(RATINGS_TAB).getDataRange().getValues();
   const month = normalizeMonth(d.month);
+  const out = [];
 
-  let out = [];
-
-  for (let i = 1; i < rows.length; i++) {
+  for (let i = 1; i < rows.length; i += 1) {
     if (normalizeMonth(rows[i][0]) === month) {
       out.push({
         month,
@@ -123,55 +153,51 @@ function getRatings(d){
   return json(out);
 }
 
-function saveRatings(d){
+function saveRatings(d) {
   const rows = sheet(RATINGS_TAB).getDataRange().getValues();
-
   const month = normalizeMonth(d.month);
   const reviewerId = normalizeId(d.reviewerId);
 
-  (d.ratings || []).forEach(r => {
-    if (!r.targetId) return;
+  (d.ratings || []).forEach(rating => {
+    if (!rating.targetId) return;
 
-    const targetId = normalizeId(r.targetId);
+    const targetId = normalizeId(rating.targetId);
     let found = false;
 
-    for (let i = 1; i < rows.length; i++) {
+    for (let i = 1; i < rows.length; i += 1) {
       if (
         normalizeMonth(rows[i][0]) === month &&
         normalizeId(rows[i][1]) === reviewerId &&
         normalizeId(rows[i][2]) === targetId
       ) {
-        sheet(RATINGS_TAB).getRange(i + 1, 4).setValue(r.rating);
-        sheet(RATINGS_TAB).getRange(i + 1, 5).setValue(r.comment || "");
+        sheet(RATINGS_TAB).getRange(i + 1, 4).setValue(rating.rating);
+        sheet(RATINGS_TAB).getRange(i + 1, 5).setValue(rating.comment || "");
         found = true;
         break;
       }
     }
 
     if (!found) {
-      sheet(RATINGS_TAB).appendRow([
+      appendRowWithTextColumns(sheet(RATINGS_TAB), [
         month,
         reviewerId,
         targetId,
-        r.rating,
-        r.comment || ""
-      ]);
+        rating.rating,
+        rating.comment || ""
+      ], [1, 2, 3]);
     }
   });
 
   return json({ success: true });
 }
 
-// ---------------- NOTES ----------------
-
 function getNotes(d) {
   const rows = sheet(NOTES_TAB).getDataRange().getValues();
   const month = normalizeMonth(d.month);
   const targetId = normalizeId(d.targetId);
+  const out = [];
 
-  let out = [];
-
-  for (let i = 1; i < rows.length; i++) {
+  for (let i = 1; i < rows.length; i += 1) {
     if (
       normalizeMonth(rows[i][0]) === month &&
       (!targetId || normalizeId(rows[i][2]) === targetId)
@@ -198,27 +224,24 @@ function saveNotes(d) {
   const note = String(d.note || "").trim();
   const updatedAt = new Date();
 
-  sheet(NOTES_TAB).appendRow([
+  appendRowWithTextColumns(sheet(NOTES_TAB), [
     month,
     reviewerId,
     targetId,
     type,
     note,
     updatedAt
-  ]);
+  ], [1, 2, 3]);
 
   return json({ success: true });
 }
 
-// ---------------- MESSAGES ----------------
-
 function getMessages(d) {
   const rows = sheet(MESSAGES_TAB).getDataRange().getValues();
   const userId = normalizeId(d.userId);
+  const out = [];
 
-  let out = [];
-
-  for (let i = 1; i < rows.length; i++) {
+  for (let i = 1; i < rows.length; i += 1) {
     const message = {
       id: rows[i][0],
       senderId: normalizeId(rows[i][1]),
@@ -230,7 +253,6 @@ function getMessages(d) {
       readBy: String(rows[i][7] || "").split(",").map(id => normalizeId(id.trim())).filter(id => id)
     };
 
-    // Include messages where user is recipient or it's sent to all staff
     const isRecipient = message.recipientIds.includes(userId) || message.recipientIds.includes("ALL");
     if (isRecipient) {
       out.push(message);
@@ -242,18 +264,20 @@ function getMessages(d) {
 
 function sendMessage(d) {
   const senderId = normalizeId(d.senderId);
-  const recipientIds = Array.isArray(d.recipientIds) ? d.recipientIds.map(id => normalizeId(id)) : [normalizeId(d.recipientIds)];
+  const recipientIds = Array.isArray(d.recipientIds)
+    ? d.recipientIds.map(id => normalizeId(id))
+    : [normalizeId(d.recipientIds)];
   const subject = String(d.subject || "").trim();
   const message = String(d.message || "").trim();
   const isUrgent = isTrue(d.isUrgent);
   const sentAt = new Date();
-  const messageId = generateRandomToken(16); // Generate unique message ID
+  const messageId = generateRandomToken(16);
 
   if (!subject || !message) {
     return json({ success: false, error: "MISSING_FIELDS" });
   }
 
-  sheet(MESSAGES_TAB).appendRow([
+  appendRowWithTextColumns(sheet(MESSAGES_TAB), [
     messageId,
     senderId,
     recipientIds.join(","),
@@ -261,8 +285,8 @@ function sendMessage(d) {
     message,
     isUrgent,
     sentAt,
-    "" // readBy starts empty
-  ]);
+    ""
+  ], [1, 2, 3, 8]);
 
   return json({ success: true, messageId });
 }
@@ -277,15 +301,15 @@ function markMessageRead(d) {
 
   const rows = sheet(MESSAGES_TAB).getDataRange().getValues();
 
-  for (let i = 1; i < rows.length; i++) {
+  for (let i = 1; i < rows.length; i += 1) {
     if (String(rows[i][0]) === messageId) {
       const currentReadBy = String(rows[i][7] || "").split(",").map(id => normalizeId(id.trim())).filter(id => id);
-      
+
       if (!currentReadBy.includes(userId)) {
         currentReadBy.push(userId);
-        sheet(MESSAGES_TAB).getRange(i + 1, 8).setValue(currentReadBy.join(","));
+        setPlainTextValue(sheet(MESSAGES_TAB).getRange(i + 1, 8), currentReadBy.join(","));
       }
-      
+
       return json({ success: true });
     }
   }
@@ -293,12 +317,11 @@ function markMessageRead(d) {
   return json({ success: false, error: "MESSAGE_NOT_FOUND" });
 }
 
-function getAllMessages(d) {
+function getAllMessages() {
   const rows = sheet(MESSAGES_TAB).getDataRange().getValues();
+  const out = [];
 
-  let out = [];
-
-  for (let i = 1; i < rows.length; i++) {
+  for (let i = 1; i < rows.length; i += 1) {
     out.push({
       id: rows[i][0],
       senderId: normalizeId(rows[i][1]),
@@ -314,45 +337,36 @@ function getAllMessages(d) {
   return json(out);
 }
 
-// ---------------- DASHBOARD ----------------
-
-function getDashboard(d){
-  const staff = getStaff().filter(s=>isTrue(s.isActive));
+function getDashboard(d) {
+  const staff = getStaff().filter(member => isTrue(member.isActive));
   const rows = sheet(RATINGS_TAB).getDataRange().getValues();
+  const map = {};
 
-  let map = {};
-
-  staff.forEach(s=>{
-    map[s.discordId] = {
-      name: s.name,
-      avatarURL: s.avatarURL,
+  staff.forEach(member => {
+    map[member.discordId] = {
+      name: member.name,
+      avatarURL: member.avatarURL,
       ratings: 0
     };
   });
 
-  for(let i=1;i<rows.length;i++){
-    if(normalizeMonth(rows[i][0]) === normalizeMonth(d.month)){
-      if(map[rows[i][2]]){
-        map[rows[i][2]].ratings++;
-      }
+  for (let i = 1; i < rows.length; i += 1) {
+    if (normalizeMonth(rows[i][0]) === normalizeMonth(d.month) && map[rows[i][2]]) {
+      map[rows[i][2]].ratings += 1;
     }
   }
 
   return json(Object.values(map));
 }
 
-// ---------------- TOKEN GENERATION ----------------
-
 function generateRandomToken(length = 32) {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
   let token = "";
-  for (let i = 0; i < length; i++) {
+  for (let i = 0; i < length; i += 1) {
     token += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return token;
 }
-
-// ---------------- ADMIN FUNCTIONS ----------------
 
 function addStaff(d) {
   if (!d.discordId || !d.name) {
@@ -361,22 +375,21 @@ function addStaff(d) {
 
   const newToken = generateRandomToken(32);
   const staffData = sheet(STAFF_TAB).getDataRange().getValues();
-  
-  // Check if user already exists
-  for (let i = 1; i < staffData.length; i++) {
+
+  for (let i = 1; i < staffData.length; i += 1) {
     if (normalizeId(staffData[i][0]) === normalizeId(d.discordId)) {
       return json({ success: false, error: "USER_EXISTS" });
     }
   }
 
-  sheet(STAFF_TAB).appendRow([
+  appendRowWithTextColumns(sheet(STAFF_TAB), [
     d.discordId,
     d.name,
     d.avatarURL || "",
     newToken,
     isTrue(d.isActive) ? true : false,
-    isTrue(d.isWebAdmin) ? true : false
-  ]);
+    normalizeAdminRole(d.isWebAdmin)
+  ], [1, 4, 6]);
 
   return json({ success: true, newToken });
 }
@@ -386,44 +399,51 @@ function updateStaff(d) {
     return json({ success: false, error: "MISSING_DISCORD_ID" });
   }
 
-  const staffData = sheet(STAFF_TAB).getDataRange().getValues();
+  const staffSheet = sheet(STAFF_TAB);
+  const staffData = staffSheet.getDataRange().getValues();
   const headers = staffData[0];
   let found = false;
 
-  for (let i = 1; i < staffData.length; i++) {
+  for (let i = 1; i < staffData.length; i += 1) {
     if (normalizeId(staffData[i][0]) === normalizeId(d.discordId)) {
       const updates = d.updates || {};
 
-      // Update name
       if (updates.name !== undefined) {
         const nameIdx = headers.indexOf("name");
         if (nameIdx >= 0) {
-          sheet(STAFF_TAB).getRange(i + 1, nameIdx + 1).setValue(updates.name);
+          staffSheet.getRange(i + 1, nameIdx + 1).setValue(updates.name);
         }
       }
 
-      // Update avatarURL
       if (updates.avatarURL !== undefined) {
         const avatarIdx = headers.indexOf("avatarURL");
         if (avatarIdx >= 0) {
-          sheet(STAFF_TAB).getRange(i + 1, avatarIdx + 1).setValue(updates.avatarURL);
+          staffSheet.getRange(i + 1, avatarIdx + 1).setValue(updates.avatarURL);
         }
       }
 
-      // Update isActive
       if (updates.isActive !== undefined) {
         const activeIdx = headers.indexOf("isActive");
         if (activeIdx >= 0) {
-          sheet(STAFF_TAB).getRange(i + 1, activeIdx + 1).setValue(isTrue(updates.isActive) ? true : false);
+          staffSheet.getRange(i + 1, activeIdx + 1).setValue(isTrue(updates.isActive) ? true : false);
         }
       }
 
-      // Update isWebAdmin
       if (updates.isWebAdmin !== undefined) {
         const adminIdx = headers.indexOf("isWebAdmin");
         if (adminIdx >= 0) {
-          sheet(STAFF_TAB).getRange(i + 1, adminIdx + 1).setValue(isTrue(updates.isWebAdmin) ? true : false);
+          setPlainTextValue(staffSheet.getRange(i + 1, adminIdx + 1), normalizeAdminRole(updates.isWebAdmin));
         }
+      }
+
+      if (updates.isFeatured !== undefined) {
+        const featuredIdx = ensureHeaderColumn(staffSheet, headers, "isFeatured");
+        staffSheet.getRange(i + 1, featuredIdx + 1).setValue(isTrue(updates.isFeatured) ? true : false);
+      }
+
+      if (updates.featuredEmoji !== undefined) {
+        const featuredEmojiIdx = ensureHeaderColumn(staffSheet, headers, "featuredEmoji");
+        setPlainTextValue(staffSheet.getRange(i + 1, featuredEmojiIdx + 1), normalizeFeaturedEmoji(updates.featuredEmoji));
       }
 
       found = true;
@@ -444,11 +464,11 @@ function resetStaffToken(d) {
   const headers = staffData[0];
   let found = false;
 
-  for (let i = 1; i < staffData.length; i++) {
+  for (let i = 1; i < staffData.length; i += 1) {
     if (normalizeId(staffData[i][0]) === normalizeId(d.discordId)) {
       const tokenIdx = headers.indexOf("secretToken");
       if (tokenIdx >= 0) {
-        sheet(STAFF_TAB).getRange(i + 1, tokenIdx + 1).setValue(newToken);
+        setPlainTextValue(sheet(STAFF_TAB).getRange(i + 1, tokenIdx + 1), newToken);
         found = true;
       }
       break;
@@ -470,13 +490,10 @@ function getMaintenanceMode() {
   return json({ maintenance: isTrue(mode) });
 }
 
-// ---------------- ROUTER ----------------
-
-function doPost(e){
+function doPost(e) {
   const d = parse(e);
 
-  switch(d.action){
-
+  switch (d.action) {
     case "getStaff":
       return json(getStaff());
 
@@ -529,6 +546,6 @@ function doPost(e){
       return getMaintenanceMode(d);
 
     default:
-      return json({ error:"INVALID_ACTION" });
+      return json({ error: "INVALID_ACTION" });
   }
 }
