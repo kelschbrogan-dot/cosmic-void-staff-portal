@@ -486,6 +486,25 @@ input[type="checkbox"] {
   cursor: pointer;
 }
 
+.form-grid,
+.modal-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.form-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.form-grid textarea {
+  grid-column: 1 / -1;
+}
+
+.form-grid .action-row,
+.modal-grid .action-row {
+  grid-column: 1 / -1;
+}
+
 label {
   display: block;
   color: var(--text-muted);
@@ -510,7 +529,8 @@ label.checkbox-row {
 .rating-pill,
 .role-pill,
 .staff-note-badge,
-.note-badge {
+.note-badge,
+.status-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -518,6 +538,47 @@ label.checkbox-row {
   padding: 6px 10px;
   font-size: 0.82rem;
   font-weight: 700;
+}
+
+.status-pill {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.status-pill.pending {
+  background: var(--warning-soft);
+  color: #f6c672;
+}
+
+.status-pill.approved,
+.rating-pill.positive,
+.note-badge.positive,
+.review-status.complete {
+  background: var(--positive-soft);
+  color: #adf0ce;
+}
+
+.status-pill.auto-approved {
+  background: rgba(51, 195, 129, 0.14);
+  color: var(--positive);
+}
+
+.status-pill.denied,
+.rating-pill.negative,
+.note-badge.negative,
+.review-status.incomplete {
+  background: var(--negative-soft);
+  color: #ffc6cc;
+}
+
+.status-pill.expired {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+}
+
+.status-pill.blocked {
+  background: rgba(240, 107, 120, 0.16);
+  color: var(--negative);
 }
 
 .review-status.complete,

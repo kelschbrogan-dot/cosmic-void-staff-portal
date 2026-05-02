@@ -1,4 +1,5 @@
 const API = "https://remoteworker23.jeoliver1fan.workers.dev/";
+const API_KEY = "cosmic-void-api-key-v1";
 const params = new URLSearchParams(window.location.search);
 const userId = params.get("id");
 const token = params.get("token");
@@ -13,6 +14,10 @@ const state = {
   ratings: [],
   notes: [],
   messages: [],
+  loas: [],
+  quotaRecords: [],
+  sessions: [],
+  strikes: [],
   month: getCurrentMonth(),
   user: null,
   reviewFilter: "all",
@@ -40,6 +45,226 @@ function getCurrentMonth() {
 
 function isTrue(value) {
   return value === true || String(value || "").trim().toLowerCase() === "true";
+}
+
+function formatMonthLabel(month) {
+  const [year, monthIndex] = String(month || "").split("-");
+  if (!year || !monthIndex) return String(month || "");
+  const date = new Date(Number(year), Number(monthIndex) - 1, 1);
+  return date.toLocaleDateString("en-US", { year: "numeric", month: "long" });
+}
+
+function getMonthKey(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function getCstNow() {
+  return new Date(new Date().toLocaleString("en-US", { timeZone: "America/Chicago" }));
+}
+
+function parseDateInTimeZone(value, timeZone = "America/Chicago") {
+  if (!value) return null;
+  const [datePart, timePart = "00:00"] = String(value).split("T");
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hour, minute] = timePart.split(":").map(Number);
+  if (![year, month, day].every(Number.isFinite)) return null;
+
+  const utcDate = new Date(Date.UTC(year, month - 1, day, hour || 0, minute || 0, 0));
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
+  const parts = formatter.formatToParts(utcDate).reduce((acc, part) => {
+    if (part.type) acc[part.type] = part.value;
+    return acc;
+  }, {});
+  const tzDate = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second)
+  );
+  return new Date(utcDate.getTime() - (utcDate.getTime() - tzDate));
+}
+
+function buildStatusBadge(status) {
+  const normalized = String(status || "").trim();
+  const type = normalized.toLowerCase().replace(/\s+/g, "-");
+  return `<span class="status-pill ${escapeHtml(type)}">${escapeHtml(normalized)}</span>`;
+}
+
+function formatDate(value) {
+  const parsed = Date.parse(value || "");
+  if (!Number.isFinite(parsed)) return "Unknown";
+  return new Date(parsed).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric"
+  });
+}
+
+function getOverlapRange(aStart, aEnd, bStart, bEnd) {
+  return aStart <= bEnd && bStart <= aEnd;
+}
+
+function getDisplayRange(start, end) {
+  return `${formatDate(start)} – ${formatDate(end)}`;
+}
+
+function getMonthFromString(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return getMonthKey(new Date());
+  return normalized;
+}
+
+function isUserBlocked() {
+  if (!state.user) return false;
+  const activeStrikes = state.strikes.filter(strike => strike.discordId === String(userId).trim() && strike.active);
+  const hasBlockHold = state.strikes.some(strike => strike.discordId === String(userId).trim() && strike.blockHeld === true);
+  return activeStrikes.length >= 3 || hasBlockHold;
+}
+
+function getUserStrikes(userIdToCheck) {
+  return state.strikes.filter(strike => String(strike.discordId).trim() === String(userIdToCheck).trim());
+}
+
+function getActiveStrikes(userIdToCheck) {
+  return getUserStrikes(userIdToCheck).filter(strike => strike.active);
+}
+
+function getStrikeSliderLabel(count) {
+  switch (count) {
+    case 0:
+      return "All Good";
+    case 1:
+      return "1 Strike";
+    case 2:
+      return "2 Strikes";
+    default:
+      return "3 Strikes";
+  }
+}
+
+function getQuotaRequirement(record) {
+  const base = 700;
+  const usedPTO = Number(record.ptoUsed || 0);
+  return Math.max(base - usedPTO, 0);
+}
+
+function isQuotaSatisfied(record) {
+  if (!record) return false;
+  if (record.excused) return true;
+  const sessions = Number(record.sessions || 0);
+  const messages = Number(record.messages || 0);
+  const requiredMessages = getQuotaRequirement(record);
+  return sessions >= 1 && messages >= requiredMessages;
+}
+
+function formatCellValue(value) {
+  if (value === true || value === false) return value ? "YES" : "NO";
+  return String(value || "");
+}
+
+function buildBadge(label, tone = "positive") {
+  return `<span class="note-badge ${escapeHtml(tone)}">${escapeHtml(label)}</span>`;
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function getCurrentMonth() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+function getMonthLabel(month) {
+  const [year, monthNum] = String(month || "").split("-");
+  if (!year || !monthNum) return String(month || "");
+  return new Date(Number(year), Number(monthNum) - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
+function pad(str, length = 2) {
+  return String(str).padStart(length, "0");
+}
+
+function asBoolean(value) {
+  return value === true || String(value || "").trim().toLowerCase() === "true";
+}
+
+function joinIds(ids) {
+  return Array.isArray(ids) ? ids.filter(Boolean).map(String).join(",") : String(ids || "");
+}
+
+function uniqueIds(ids) {
+  return [...new Set((Array.isArray(ids) ? ids : String(ids || "").split(",")).map(id => String(id || "").trim()).filter(Boolean))];
+}
+
+function getPageIdForTab(page) {
+  return `${page}Page`;
+}
+
+function shouldShowAdminPage() {
+  return isAdmin(state.user);
+}
+
+function getApprovalLegend(status) {
+  if (!status) return "Pending";
+  if (status.toLowerCase().includes("approved")) return "Approved";
+  if (status.toLowerCase().includes("denied")) return "Denied";
+  if (status.toLowerCase().includes("expired")) return "Expired";
+  return status;
+}
+
+function getBlockedStatus() {
+  return isUserBlocked() ? "blocked" : "clear";
+}
+
+function getStatusLabel(status) {
+  switch (String(status || "").toLowerCase()) {
+    case "pending":
+      return "Pending";
+    case "auto-approved":
+      return "Auto-Approved";
+    case "approved":
+      return "Approved";
+    case "denied":
+      return "Denied";
+    case "expired":
+      return "Expired";
+    default:
+      return String(status || "Pending");
+  }
+}
+
+function getTooltipTextForStatus(status) {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized === "auto-approved") return "Automatically approved because the user confirmed both quotas.";
+  if (normalized === "approved") return "Approved by an administrator.";
+  if (normalized === "denied") return "Denied by an administrator.";
+  if (normalized === "expired") return "This LOA has expired.";
+  return "Awaiting administrator review.";
+}
+
+function getId(value) {
+  return String(value || "").trim();
+}
+
+function isSameMonth(a, b) {
+  return getMonthKey(a) === getMonthKey(b);
+}
+
+function getCstBoundaryDate(value) {
+  return parseDateInTimeZone(value, "America/Chicago");
 }
 
 function normalizeRoleValue(value) {
@@ -670,7 +895,10 @@ async function fetchApi(action, data = {}) {
   try {
     const response = await fetch(API, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": API_KEY
+      },
       body: JSON.stringify({ action, ...data }),
       signal: controller.signal
     });
@@ -770,7 +998,7 @@ function showPage(page) {
 
   const menu = document.querySelector(".menu");
   if (menu) {
-    menu.classList.toggle("hidden", page === "revoked");
+    menu.classList.toggle("hidden", page === "revoked" || page === "blocked");
   }
 }
 
@@ -1287,6 +1515,433 @@ function renderAdminMessageCenter() {
   });
 }
 
+function getMyLoas() {
+  return state.loas.filter(loa => String(loa.discordId).trim() === String(userId).trim() && !loa.deleted);
+}
+
+function getQuotaRecordForMonth(month = state.month, targetId = userId) {
+  return state.quotaRecords.find(record =>
+    String(record.discordId).trim() === String(targetId).trim() && String(record.month).trim() === String(month).trim()
+  );
+}
+
+function getCurrentQuotaRecord() {
+  return getQuotaRecordForMonth(state.month, userId) || {
+    month: state.month,
+    discordId: userId,
+    sessions: 0,
+    messages: 0,
+    ptoUsed: 0,
+    excused: false,
+    completed: false,
+    notes: ""
+  };
+}
+
+function renderLOAPage() {
+  const container = getEl("loaContent");
+  if (!container) return;
+
+  const myLoas = getMyLoas().sort((a, b) => Date.parse(a.startDate || "") - Date.parse(b.startDate || ""));
+  const currentQuota = getCurrentQuotaRecord();
+  const hasExcused = currentQuota.excused;
+  const summary = hasExcused ? '<div class="note-badge positive">Excused from quotas this month</div>' : '';
+
+  const formHtml = `
+    <div class="summary-shell">
+      <div class="page-header">
+        <div>
+          <h3>Request LOA</h3>
+          <p class="page-subtitle">Submit an absence request at least 48 hours before the start date in CST.</p>
+        </div>
+      </div>
+      <div class="form-grid">
+        <label for="loaStartDate">Start date (CST)</label>
+        <input id="loaStartDate" type="date" />
+        <label for="loaEndDate">End date (CST)</label>
+        <input id="loaEndDate" type="date" />
+        <label for="loaNotes">Reason / notes</label>
+        <textarea id="loaNotes" rows="4" placeholder="Explain why you need this LOA."></textarea>
+        <label class="checkbox-row" for="loaSessionQuota">
+          <input id="loaSessionQuota" type="checkbox" checked />
+          I will meet my session quota
+        </label>
+        <label class="checkbox-row" for="loaMessageQuota">
+          <input id="loaMessageQuota" type="checkbox" checked />
+          I will meet my message quota
+        </label>
+      </div>
+      <div class="action-row">
+        <button id="loaSubmitBtn" class="primary-button" type="button">Submit LOA Request</button>
+      </div>
+      <div class="note-summary">${summary}</div>
+    </div>
+  `;
+
+  const rowsHtml = myLoas.length ? myLoas.map(loa => {
+    const statusLabel = getStatusLabel(loa.status || "Pending");
+    const badge = buildStatusBadge(statusLabel);
+    const sessionFlag = loa.meetsSessionQuota ? "YES" : "NO";
+    const messageFlag = loa.meetsMessageQuota ? "YES" : "NO";
+    const excusedLabel = loa.excused ? ' <span class="note-badge positive">Excused</span>' : "";
+
+    return `
+      <div class="card">
+        <div class="card-body">
+          <div class="review-card-header">
+            <div>
+              <b>${escapeHtml(getDisplayRange(loa.startDate, loa.endDate))}</b>
+              <p class="text-muted">Requested on ${escapeHtml(formatDate(loa.createdAt || loa.updatedAt || ""))}</p>
+            </div>
+            <div>${badge}</div>
+          </div>
+          <div class="mini-stat">
+            <b>Sessions</b>
+            <div class="stat-value">${escapeHtml(sessionFlag)}</div>
+          </div>
+          <div class="mini-stat">
+            <b>Messages</b>
+            <div class="stat-value">${escapeHtml(messageFlag)}</div>
+          </div>
+          <div class="mini-stat">
+            <b>Status reason</b>
+            <div class="stat-value">${escapeHtml(loa.statusReason || "No reason yet")}</div>
+          </div>
+          <p>${escapeHtml(loa.notes || "No notes provided.")}</p>
+          <div class="action-row">
+            <button class="button-soft" data-loa-edit="${escapeHtml(loa.loaId)}" type="button">Edit</button>
+            <button class="button-secondary" data-loa-cancel="${escapeHtml(loa.loaId)}" type="button">Cancel</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("") : `<div class="card"><p>No LOA requests found. Submit one above.</p></div>`;
+
+  container.innerHTML = `
+    <div class="accordion-stack">
+      ${formHtml}
+      <div class="summary-shell">
+        <div class="page-header">
+          <div>
+            <h3>Your LOA history</h3>
+            <p class="page-subtitle">All requests are stored and can be edited or canceled.</p>
+          </div>
+        </div>
+        <div class="stack-list">${rowsHtml}</div>
+      </div>
+    </div>
+  `;
+
+  getEl("loaSubmitBtn")?.addEventListener("click", saveLoaRequest);
+  document.querySelectorAll("[data-loa-edit]").forEach(button => {
+    button.addEventListener("click", () => openLoaEditModal(button.dataset.loaEdit));
+  });
+  document.querySelectorAll("[data-loa-cancel]").forEach(button => {
+    button.addEventListener("click", () => cancelLoaRequest(button.dataset.loaCancel));
+  });
+}
+
+function renderQuotaPage() {
+  const container = getEl("quotaContent");
+  if (!container) return;
+
+  const record = getCurrentQuotaRecord();
+  const requiredMessages = getQuotaRequirement(record);
+  const satisfied = isQuotaSatisfied(record);
+  const excused = record.excused ? "Yes" : "No";
+
+  container.innerHTML = `
+    <div class="summary-shell">
+      <div class="page-header">
+        <div>
+          <h3>Monthly Quota</h3>
+          <p class="page-subtitle">Track your current quota performance and PTO adjustments.</p>
+        </div>
+      </div>
+      <div class="summary-grid">
+        <div class="mini-stat">
+          <b>Month</b>
+          <div class="stat-value accent">${escapeHtml(formatMonthLabel(record.month))}</div>
+        </div>
+        <div class="mini-stat">
+          <b>Sessions</b>
+          <div class="stat-value">${escapeHtml(String(record.sessions || 0))}</div>
+          <div class="stat-subtext">Minimum 1 session per month</div>
+        </div>
+        <div class="mini-stat">
+          <b>Messages</b>
+          <div class="stat-value">${escapeHtml(String(record.messages || 0))}</div>
+          <div class="stat-subtext">Required: ${escapeHtml(String(requiredMessages))}</div>
+        </div>
+        <div class="mini-stat">
+          <b>PTO Used</b>
+          <div class="stat-value">${escapeHtml(String(record.ptoUsed || 0))}</div>
+          <div class="stat-subtext">Each PTO reduces message requirement by 1</div>
+        </div>
+        <div class="mini-stat">
+          <b>Excused</b>
+          <div class="stat-value ${record.excused ? "positive" : "warning"}">${escapeHtml(excused)}</div>
+          <div class="stat-subtext">LOA excused quotas</div>
+        </div>
+        <div class="mini-stat">
+          <b>Status</b>
+          <div class="stat-value ${satisfied ? "positive" : "negative"}">${satisfied ? "Complete" : "Incomplete"}</div>
+        </div>
+      </div>
+      <div class="stack-list">
+        <div class="card">
+          <div class="card-body">
+            <b>Quota notes</b>
+            <p>${escapeHtml(record.notes || "No additional notes.")}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderStandingPage() {
+  const container = getEl("standingContent");
+  if (!container) return;
+  const strikes = getActiveStrikes(userId);
+  const sliderLabel = getStrikeSliderLabel(strikes.length);
+  const blocked = isUserBlocked();
+
+  container.innerHTML = `
+    <div class="summary-shell">
+      <div class="page-header">
+        <div>
+          <h3>Strike Standing</h3>
+          <p class="page-subtitle">Your active strike count and reasons are shown here.</p>
+        </div>
+      </div>
+      <div class="summary-grid">
+        <div class="mini-stat">
+          <b>Active Strikes</b>
+          <div class="stat-value ${strikes.length >= 3 ? "negative" : strikes.length === 0 ? "positive" : "warning"}">${escapeHtml(String(strikes.length))}</div>
+        </div>
+        <div class="mini-stat">
+          <b>Current Standing</b>
+          <div class="stat-value accent">${escapeHtml(sliderLabel)}</div>
+        </div>
+        <div class="mini-stat">
+          <b>Blocked</b>
+          <div class="stat-value ${blocked ? "negative" : "positive"}">${blocked ? "Yes" : "No"}</div>
+        </div>
+      </div>
+      <div class="stack-list">
+        ${strikes.length ? strikes.map(strike => `
+          <div class="review-card">
+            <div class="review-card-header">
+              <b>${escapeHtml(strike.reason || "No reason provided")}</b>
+              <span class="note-badge ${strike.active ? "negative" : "positive"}">${strike.active ? "Active" : "Expired"}</span>
+            </div>
+            <p>Issued by ${escapeHtml(getReviewerName(strike.issuedBy || strike.adminId || "Unknown"))} on ${escapeHtml(formatDate(strike.issuedAt || strike.createdAt || ""))}</p>
+          </div>
+        `).join("") : `<div class="empty-state">No active strikes on file.</div>`}
+      </div>
+    </div>
+  `;
+}
+
+function openLoaEditModal(loaId) {
+  const loa = state.loas.find(item => String(item.loaId).trim() === String(loaId).trim());
+  if (!loa) return;
+
+  showPopup("Edit LOA", `
+    <label for="editLoaStartDate">Start date (CST)</label>
+    <input id="editLoaStartDate" type="date" value="${escapeHtml(loa.startDate || "")}" />
+    <label for="editLoaEndDate">End date (CST)</label>
+    <input id="editLoaEndDate" type="date" value="${escapeHtml(loa.endDate || "")}" />
+    <label for="editLoaNotes">Reason / notes</label>
+    <textarea id="editLoaNotes" rows="4">${escapeHtml(loa.notes || "")}</textarea>
+    <label class="checkbox-row" for="editLoaSessionQuota">
+      <input id="editLoaSessionQuota" type="checkbox" ${loa.meetsSessionQuota ? "checked" : ""} />
+      I will meet my session quota
+    </label>
+    <label class="checkbox-row" for="editLoaMessageQuota">
+      <input id="editLoaMessageQuota" type="checkbox" ${loa.meetsMessageQuota ? "checked" : ""} />
+      I will meet my message quota
+    </label>
+  `, [
+    { id: "cancelEditLoaBtn", text: "Close", secondary: true, callback: hidePopup },
+    { id: "saveEditLoaBtn", text: "Save Changes", callback: async () => {
+      const startDate = getEl("editLoaStartDate")?.value;
+      const endDate = getEl("editLoaEndDate")?.value;
+      const notes = getEl("editLoaNotes")?.value.trim();
+      const meetsSessionQuota = !!getEl("editLoaSessionQuota")?.checked;
+      const meetsMessageQuota = !!getEl("editLoaMessageQuota")?.checked;
+
+      showStatus("Updating LOA request...");
+      showSpinner();
+
+      const result = await fetchApi("saveLOA", {
+        loaId: loa.loaId,
+        discordId: userId,
+        startDate,
+        endDate,
+        notes,
+        meetsSessionQuota,
+        meetsMessageQuota
+      });
+
+      hideSpinner();
+      if (!result?.success) {
+        showStatus("Failed to update LOA.", "error");
+        return;
+      }
+
+      hidePopup();
+      await loadInactivity();
+      showStatus("LOA request updated.");
+    } }
+  ]);
+}
+
+async function cancelLoaRequest(loaId) {
+  const shouldCancel = confirm("Cancel this LOA request? This will mark it as denied.");
+  if (!shouldCancel) return;
+  showStatus("Canceling LOA...");
+  showSpinner();
+
+  const result = await fetchApi("setLOAStatus", {
+    loaId,
+    status: "Denied",
+    statusReason: "Canceled by user",
+    adminId: userId
+  });
+
+  hideSpinner();
+  if (!result?.success) {
+    showStatus("Failed to cancel the LOA.", "error");
+    return;
+  }
+
+  await loadInactivity();
+  showStatus("LOA request canceled.");
+}
+
+async function updateLoaStatus(loaId, status, statusReason) {
+  if (!loaId || !status) return;
+
+  showStatus(`${status} LOA request...`);
+  showSpinner();
+
+  const result = await fetchApi("setLOAStatus", {
+    loaId,
+    status,
+    statusReason,
+    adminId: userId
+  });
+
+  hideSpinner();
+  if (!result?.success) {
+    showStatus(`Failed to ${status.toLowerCase()} LOA request.`, "error");
+    return;
+  }
+
+  await loadAdmin();
+  showStatus(`LOA request ${status.toLowerCase()} successfully.`);
+}
+
+async function saveLoaRequest() {
+  const startDate = getEl("loaStartDate")?.value;
+  const endDate = getEl("loaEndDate")?.value;
+  const notes = getEl("loaNotes")?.value.trim();
+  const meetsSessionQuota = !!getEl("loaSessionQuota")?.checked;
+  const meetsMessageQuota = !!getEl("loaMessageQuota")?.checked;
+
+  if (!startDate || !endDate || !notes) {
+    showStatus("Please enter a start date, end date, and notes.");
+    return;
+  }
+
+  const start = parseDateInTimeZone(`${startDate}T00:00`, "America/Chicago");
+  const end = parseDateInTimeZone(`${endDate}T23:59`, "America/Chicago");
+  if (!start || !end || start > end) {
+    showStatus("Start date must be before or equal to end date.");
+    return;
+  }
+
+  const minStart = new Date(getCstNow().getTime() + 48 * 60 * 60 * 1000);
+  if (start.getTime() < minStart.getTime()) {
+    showStatus("Start date must be at least 48 hours from now in CST.");
+    return;
+  }
+
+  showStatus("Submitting LOA request...");
+  showSpinner();
+
+  const result = await fetchApi("saveLOA", {
+    discordId: userId,
+    startDate: startDate,
+    endDate: endDate,
+    notes,
+    meetsSessionQuota,
+    meetsMessageQuota
+  });
+
+  hideSpinner();
+  if (!result?.success) {
+    showStatus("Failed to submit LOA.", "error");
+    return;
+  }
+
+  await loadInactivity();
+  showStatus("LOA request submitted.");
+}
+
+async function loadInactivity() {
+  showPage("loa");
+  showStatus("Loading LOA data...");
+  showSpinner();
+
+  const [loas, quotaRecords, strikes] = await Promise.all([
+    fetchApi("getLOAs", { userId }),
+    fetchApi("getQuotaRecords", { userId, month: state.month }),
+    fetchApi("getStrikes", { userId })
+  ]);
+
+  state.loas = Array.isArray(loas) ? loas : [];
+  state.quotaRecords = Array.isArray(quotaRecords) ? quotaRecords : [];
+  state.strikes = Array.isArray(strikes) ? strikes : [];
+
+  renderLOAPage();
+  hideSpinner();
+  showStatus("LOA data loaded.");
+}
+
+async function loadQuota() {
+  showPage("quota");
+  showStatus("Loading quota data...");
+  showSpinner();
+
+  const [quotaRecords, strikes] = await Promise.all([
+    fetchApi("getQuotaRecords", { userId, month: state.month }),
+    fetchApi("getStrikes", { userId })
+  ]);
+
+  state.quotaRecords = Array.isArray(quotaRecords) ? quotaRecords : [];
+  state.strikes = Array.isArray(strikes) ? strikes : [];
+
+  renderQuotaPage();
+  hideSpinner();
+  showStatus("Quota data loaded.");
+}
+
+async function loadStanding() {
+  showPage("standing");
+  showStatus("Loading standing...");
+  showSpinner();
+
+  const strikes = await fetchApi("getStrikes", { userId });
+  state.strikes = Array.isArray(strikes) ? strikes : [];
+
+  renderStandingPage();
+  hideSpinner();
+  showStatus("Standing loaded.");
+}
+
 function buildNoteHtml(note) {
   const anonymous = isAnonymousNoteText(note.note);
   const staffNote = isStaffNoteText(note.note);
@@ -1698,6 +2353,28 @@ function getAdminTargetNotes(targetId) {
   return getStandardNotes(state.notes).filter(note => String(note.targetId).trim() === String(targetId).trim());
 }
 
+function getLoaMetricsForUser(targetId) {
+  const allLoas = state.loas.filter(loa => String(loa.discordId).trim() === String(targetId).trim());
+  const totalDays = allLoas.reduce((sum, loa) => {
+    const start = new Date(loa.startDate);
+    const end = new Date(loa.endDate);
+    if (Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) && end >= start) {
+      return sum + Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    }
+    return sum;
+  }, 0);
+  const monthly = allLoas.reduce((map, loa) => {
+    const key = normalizeMonth(loa.startDate || loa.createdAt || new Date());
+    map[key] = (map[key] || 0) + 1;
+    return map;
+  }, {});
+  return {
+    totalRequests: allLoas.length,
+    totalDays,
+    monthly
+  };
+}
+
 function getAdminTargetRatings(targetId) {
   return state.ratings.filter(rating => String(rating.targetId).trim() === String(targetId).trim());
 }
@@ -1781,6 +2458,7 @@ async function openAdminStaffModal(targetId) {
   const adminNoteDraft = getAdminStaffNoteDraft(targetId);
   const staffNoteSavePending = pendingNoteSaves.has(getNoteSaveKey("moderator", targetId));
 
+  const loaMetrics = getLoaMetricsForUser(targetId);
   const ratingsHtml = buildRatingsHtml(ratings);
   const staffNotesHtml = staffNotes.length
     ? staffNotes.map(note => buildNoteHtml(note)).join("")
@@ -1822,6 +2500,11 @@ async function openAdminStaffModal(targetId) {
               <b>Reviews Given</b>
               <div class="stat-value">${ratingsGiven}/${expectedRatings}</div>
               <div class="stat-subtext">${isTrue(member.isActive) ? "expected this month" : "member is suspended"}</div>
+            </div>
+            <div class="mini-stat">
+              <b>LOA History</b>
+              <div class="stat-value accent">${loaMetrics.totalRequests}</div>
+              <div class="stat-subtext">${loaMetrics.totalDays} lifetime days</div>
             </div>
             <div class="mini-stat">
               <b>Staff Notes</b>
@@ -2081,15 +2764,23 @@ async function loadAdmin() {
 
   await refreshStaff();
 
-  const [ratings, notes, messages] = await Promise.all([
+  const [ratings, notes, messages, loas, quotaRecords, sessions, strikes] = await Promise.all([
     fetchApi("getRatings", { month: state.month }),
     fetchApi("getNotes", { month: state.month }),
-    fetchApi("getAllMessages", {})
+    fetchApi("getAllMessages", {}),
+    fetchApi("getLOAs", {}),
+    fetchApi("getQuotaRecords", { month: state.month }),
+    fetchApi("getSessions", { month: state.month }),
+    fetchApi("getStrikes", {})
   ]);
 
   state.ratings = Array.isArray(ratings) ? ratings : [];
   state.notes = Array.isArray(notes) ? notes : [];
   state.messages = Array.isArray(messages) ? messages : [];
+  state.loas = Array.isArray(loas) ? loas : [];
+  state.quotaRecords = Array.isArray(quotaRecords) ? quotaRecords : [];
+  state.sessions = Array.isArray(sessions) ? sessions : [];
+  state.strikes = Array.isArray(strikes) ? strikes : [];
 
   renderAdminControls();
   renderAdmin();
@@ -2135,6 +2826,53 @@ function renderAdmin() {
       <div class="stat-subtext">${staffNoteCount} staff notes pinned</div>
     </div>
   `;
+
+  const loaRequestsBox = getEl("adminLoaRequests");
+  if (loaRequestsBox) {
+    const allLoas = state.loas.filter(loa => !loa.deleted);
+    const pendingLoas = allLoas.filter(loa => String(loa.status).trim().toLowerCase() === "pending");
+    loaRequestsBox.innerHTML = `
+      <div class="summary-shell">
+        <div class="page-header">
+          <div>
+            <h3>LOA Requests</h3>
+            <p class="page-subtitle">Approve, deny, revoke, or override leave of absence requests here.</p>
+          </div>
+        </div>
+        <div class="stack-list">
+          ${pendingLoas.length ? pendingLoas.map(loa => `
+            <div class="review-card">
+              <div class="review-card-header">
+                <div>
+                  <b>${escapeHtml(getReviewerName(loa.discordId))}</b>
+                  <small>${escapeHtml(getDisplayRange(loa.startDate, loa.endDate))}</small>
+                </div>
+                ${buildStatusBadge(loa.status)}
+              </div>
+              <div class="mini-stat">Sessions: <strong>${loa.meetsSessionQuota ? "YES" : "NO"}</strong></div>
+              <div class="mini-stat">Messages: <strong>${loa.meetsMessageQuota ? "YES" : "NO"}</strong></div>
+              <p>${escapeHtml(loa.notes || "No notes provided.")}</p>
+              <div class="action-row">
+                <button class="primary-button" data-admin-loa-approve="${escapeHtml(loa.loaId)}" type="button">Approve</button>
+                <button class="button-secondary" data-admin-loa-deny="${escapeHtml(loa.loaId)}" type="button">Deny</button>
+                <button class="button-soft" data-admin-loa-revoke="${escapeHtml(loa.loaId)}" type="button">Revoke</button>
+              </div>
+            </div>
+          `).join("") : '<div class="empty-state">No pending LOA requests at this time.</div>'}
+        </div>
+      </div>
+    `;
+
+    loaRequestsBox.querySelectorAll("[data-admin-loa-approve]").forEach(button => {
+      button.addEventListener("click", async () => await updateLoaStatus(button.dataset.adminLoaApprove, "Approved", "Approved by admin"));
+    });
+    loaRequestsBox.querySelectorAll("[data-admin-loa-deny]").forEach(button => {
+      button.addEventListener("click", async () => await updateLoaStatus(button.dataset.adminLoaDeny, "Denied", "Denied by admin"));
+    });
+    loaRequestsBox.querySelectorAll("[data-admin-loa-revoke]").forEach(button => {
+      button.addEventListener("click", async () => await updateLoaStatus(button.dataset.adminLoaRevoke, "Denied", "Revoked by admin"));
+    });
+  }
 
   adminList.innerHTML = allStaff.length ? allStaff.map(member => {
     const targetId = String(member.discordId).trim();
@@ -2227,6 +2965,21 @@ function setupNav() {
     await loadReviews();
   });
 
+  getEl("loaTab")?.addEventListener("click", async event => {
+    event.preventDefault();
+    await loadInactivity();
+  });
+
+  getEl("quotaTab")?.addEventListener("click", async event => {
+    event.preventDefault();
+    await loadQuota();
+  });
+
+  getEl("standingTab")?.addEventListener("click", async event => {
+    event.preventDefault();
+    await loadStanding();
+  });
+
   getEl("adminTab")?.addEventListener("click", async event => {
     event.preventDefault();
     await loadAdmin();
@@ -2243,6 +2996,14 @@ function setupNav() {
     if (!verified) return;
 
     setupNav();
+    const strikes = await fetchApi("getStrikes", { userId });
+    state.strikes = Array.isArray(strikes) ? strikes : [];
+
+    if (isUserBlocked()) {
+      showPage("blocked");
+      return;
+    }
+
     await loadReviews();
   } catch (error) {
     console.error(error);

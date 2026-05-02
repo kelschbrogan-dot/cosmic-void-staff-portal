@@ -15,6 +15,9 @@
 
   <div class="menu">
     <a href="#" id="reviewsTab" data-page="reviews" class="active">Reviews</a>
+    <a href="#" id="loaTab" data-page="loa">Inactivity (LOA)</a>
+    <a href="#" id="quotaTab" data-page="quota">Quota</a>
+    <a href="#" id="standingTab" data-page="standing">Standing</a>
     <a href="#" id="adminTab" data-page="admin" class="hidden">Moderator</a>
   </div>
 
@@ -37,6 +40,36 @@
       <div id="reviewsBox"></div>
     </div>
 
+    <div id="loaPage" class="page hidden">
+      <div class="page-header">
+        <div>
+          <h2>Inactivity (LOA)</h2>
+          <p class="page-subtitle">Submit time off requests, track approval status, and review your LOA history.</p>
+        </div>
+      </div>
+      <div id="loaContent"></div>
+    </div>
+
+    <div id="quotaPage" class="page hidden">
+      <div class="page-header">
+        <div>
+          <h2>Quota</h2>
+          <p class="page-subtitle">Track monthly session and message quota performance with PTO adjustments.</p>
+        </div>
+      </div>
+      <div id="quotaContent"></div>
+    </div>
+
+    <div id="standingPage" class="page hidden">
+      <div class="page-header">
+        <div>
+          <h2>Standing</h2>
+          <p class="page-subtitle">Check active strikes, standing progress, and status in the strike system.</p>
+        </div>
+      </div>
+      <div id="standingContent"></div>
+    </div>
+
     <div id="adminPage" class="page hidden">
       <div class="page-header">
         <div>
@@ -52,6 +85,7 @@
         <div id="adminControls" class="admin-controls"></div>
       </div>
       <div id="adminStats"></div>
+      <div id="adminLoaRequests"></div>
       <div id="adminMessages"></div>
       <div id="adminList" class="admin-list"></div>
     </div>
@@ -61,6 +95,12 @@
         <h2>Access Revoked</h2>
         <p>Your access to the Staff Portal has been revoked.</p>
         <p>If your status has changed, please contact your administrator.</p>
+      </div>
+    </div>
+    <div id="blockedPage" class="page hidden">
+      <div class="card">
+        <h2>Account Blocked</h2>
+        <p>Your account is blocked due to strike standing. Please contact an administrator for review.</p>
       </div>
     </div>
   </div>
