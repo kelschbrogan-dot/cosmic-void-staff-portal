@@ -1022,7 +1022,7 @@ function showPage(page) {
     link.classList.toggle("active", link.dataset.page === page);
   });
 
-  ["reviewsPage", "adminPage", "revokedPage"].forEach(id => {
+  ["reviewsPage", "loaPage", "quotaPage", "standingPage", "adminPage", "revokedPage", "blockedPage"].forEach(id => {
     const element = getEl(id);
     if (!element) return;
     element.classList.toggle("hidden", id !== `${page}Page`);
