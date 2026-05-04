@@ -44,20 +44,31 @@ function getRequestApiKey(e, d) {
     // Google Apps Script normalizes headers to lowercase
     key = String(e.headers["x-api-key"] || e.headers["X-Api-Key"] || e.headers["X-API-KEY"] || "").trim();
   }
-  if (!key && d && d.apiKey) {
-    key = String(d.apiKey).trim();
+
+  if (!key && d && typeof d === "object") {
+    key = String(getApiKeyFromBody(d) || "").trim();
   }
+
   if (!key && e && e.postData && e.postData.contents) {
     try {
       const parsed = JSON.parse(e.postData.contents);
-      if (parsed && parsed.apiKey) {
-        key = String(parsed.apiKey).trim();
-      }
+      key = String(getApiKeyFromBody(parsed) || "").trim();
     } catch (parseError) {
       // ignore invalid JSON; fallback return will handle it
     }
   }
+
   return key;
+}
+
+function getApiKeyFromBody(body) {
+  if (!body || typeof body !== "object") return "";
+  const normalized = Object.keys(body).reduce((acc, key) => {
+    acc[key.toLowerCase()] = body[key];
+    return acc;
+  }, {});
+
+  return normalized.apikey || normalized["x-api-key"] || "";
 }
 
 function requireApiKey(e, d) {
