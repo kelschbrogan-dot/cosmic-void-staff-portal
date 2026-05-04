@@ -1,7 +1,7 @@
 const TARGET_API = "https://script.google.com/macros/s/AKfycbyl0_Aq4jBLmMKTqXORLxb6AGJ0xKOYti-DITn6Ix0NbnSSgPDKRSxQKAZ24sz_0DTG/exec";
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST,OPTIONS",
+  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type,x-api-key"
 };
 
@@ -12,10 +12,17 @@ export default {
     }
 
     let body = {};
-    try {
-      body = await request.json();
-    } catch (error) {
-      body = {};
+    if (request.method === "GET") {
+      const url = new URL(request.url);
+      url.searchParams.forEach((value, key) => {
+        body[key] = value;
+      });
+    } else {
+      try {
+        body = await request.json();
+      } catch (error) {
+        body = {};
+      }
     }
 
     const headers = new Headers();

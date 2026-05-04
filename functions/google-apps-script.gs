@@ -33,6 +33,15 @@ function parse(e) {
   }
 }
 
+function parseGet(e) {
+  if (!e || !e.parameter) return {};
+  const parsed = {};
+  Object.keys(e.parameter).forEach(key => {
+    parsed[key] = e.parameter[key];
+  });
+  return parsed;
+}
+
 function getApiKey() {
   const props = PropertiesService.getScriptProperties();
   return String(props.getProperty("API_KEY") || DEFAULT_API_KEY).trim();
@@ -43,6 +52,10 @@ function getRequestApiKey(e, d) {
   if (e && e.headers) {
     // Google Apps Script normalizes headers to lowercase
     key = String(e.headers["x-api-key"] || e.headers["X-Api-Key"] || e.headers["X-API-KEY"] || "").trim();
+  }
+
+  if (!key && e && e.parameter) {
+    key = String(e.parameter["apiKey"] || e.parameter["x-api-key"] || e.parameter["X-API-Key"] || e.parameter["X-API-KEY"] || "").trim();
   }
 
   if (!key && d && typeof d === "object") {
@@ -1248,17 +1261,13 @@ function getMaintenanceMode() {
   return json({ maintenance: isTrue(mode) });
 }
 
-function doPost(e) {
-  const d = parse(e);
-  if (!requireApiKey(e, d)) {
-    return json({ error: "MISSING_API_KEY" });
-  }
+function handleRequest(d, path) {
+  const normalizedPath = String(path || "").trim().toLowerCase();
 
-  const path = String(e.pathInfo || "").trim().toLowerCase();
-  if (path.endsWith("/log-message") || path.endsWith("log-message")) {
+  if (normalizedPath.endsWith("/log-message") || normalizedPath.endsWith("log-message")) {
     return logMessage(d);
   }
-  if (path.endsWith("/log-session") || path.endsWith("log-session")) {
+  if (normalizedPath.endsWith("/log-session") || normalizedPath.endsWith("log-session")) {
     return logSession(d);
   }
 
@@ -1356,4 +1365,22 @@ function doPost(e) {
     default:
       return json({ error: "INVALID_ACTION" });
   }
+}
+
+function doPost(e) {
+  const d = parse(e);
+  if (!requireApiKey(e, d)) {
+    return json({ error: "MISSING_API_KEY" });
+  }
+
+  return handleRequest(d, String(e.pathInfo || "").trim().toLowerCase());
+}
+
+function doGet(e) {
+  const d = parseGet(e);
+  if (!requireApiKey(e, d)) {
+    return json({ error: "MISSING_API_KEY" });
+  }
+
+  return handleRequest(d, String(e.pathInfo || "").trim().toLowerCase());
 }

@@ -457,6 +457,10 @@ h1 {
 input[type="text"],
 input[type="email"],
 input[type="password"],
+input[type="date"],
+input[type="time"],
+input[type="number"],
+input[type="range"],
 select,
 textarea {
   width: 100%;
@@ -465,6 +469,44 @@ textarea {
   background: rgba(12, 22, 38, 0.96);
   color: var(--text);
   padding: 11px 12px;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(89, 164, 255, 0.2);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  margin-top: -6px;
+}
+
+input[type="range"]::-moz-range-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(89, 164, 255, 0.2);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid rgba(255, 255, 255, 0.1);
 }
 
 select {

@@ -173,7 +173,13 @@ function getStrikeSliderLabel(count) {
 }
 
 function getQuotaRequirement(record) {
-  const base = 700;
+  if (!record || typeof record !== "object") return 0;
+  const explicitRequirement = Number(record.requiredMessages || record.messageRequirement || 0);
+  if (Number.isFinite(explicitRequirement) && explicitRequirement > 0) {
+    return explicitRequirement;
+  }
+
+  const base = 40;
   const usedPTO = Number(record.ptoUsed || 0);
   return Math.max(base - usedPTO, 0);
 }
@@ -1745,8 +1751,9 @@ function renderQuotaPage() {
 function renderStandingPage() {
   const container = getEl("standingContent");
   if (!container) return;
-  const strikes = getActiveStrikes(userId);
-  const sliderLabel = getStrikeSliderLabel(strikes.length);
+  const activeStrikes = getActiveStrikes(userId);
+  const allStrikes = getUserStrikes(userId);
+  const sliderLabel = getStrikeSliderLabel(activeStrikes.length);
   const blocked = isUserBlocked();
 
   container.innerHTML = `
@@ -1760,7 +1767,7 @@ function renderStandingPage() {
       <div class="summary-grid">
         <div class="mini-stat">
           <b>Active Strikes</b>
-          <div class="stat-value ${strikes.length >= 3 ? "negative" : strikes.length === 0 ? "positive" : "warning"}">${escapeHtml(String(strikes.length))}</div>
+          <div class="stat-value ${activeStrikes.length >= 3 ? "negative" : activeStrikes.length === 0 ? "positive" : "warning"}">${escapeHtml(String(activeStrikes.length))}</div>
         </div>
         <div class="mini-stat">
           <b>Current Standing</b>
@@ -1772,7 +1779,7 @@ function renderStandingPage() {
         </div>
       </div>
       <div class="stack-list">
-        ${strikes.length ? strikes.map(strike => `
+        ${allStrikes.length ? allStrikes.map(strike => `
           <div class="review-card">
             <div class="review-card-header">
               <b>${escapeHtml(strike.reason || "No reason provided")}</b>
@@ -1780,7 +1787,7 @@ function renderStandingPage() {
             </div>
             <p>Issued by ${escapeHtml(getReviewerName(strike.issuedBy || strike.adminId || "Unknown"))} on ${escapeHtml(formatDate(strike.issuedAt || strike.createdAt || ""))}</p>
           </div>
-        `).join("") : `<div class="empty-state">No active strikes on file.</div>`}
+        `).join("") : `<div class="empty-state">No strikes on file.</div>`}
       </div>
     </div>
   `;
@@ -2503,6 +2510,62 @@ async function saveAdminStrike(targetId) {
   showStatus("Strike issued successfully.");
 }
 
+async function updateAdminStrikeReason(strikeId, targetId, reason) {
+  if (!strikeId || !reason) {
+    showStatus("Strike reason cannot be empty.");
+    return false;
+  }
+
+  showStatus("Updating strike reason...");
+  showSpinner();
+
+  const result = await fetchApi("saveStrike", {
+    strikeId,
+    discordId: targetId,
+    reason,
+    issuedBy: userId
+  });
+
+  hideSpinner();
+
+  if (!result?.success) {
+    showError("Failed to update strike reason.");
+    return false;
+  }
+
+  await refreshStaff();
+  await loadAdmin();
+  showStatus("Strike reason updated.");
+  return true;
+}
+
+async function expireAdminStrike(strikeId) {
+  if (!strikeId) {
+    showStatus("Strike ID missing.");
+    return false;
+  }
+
+  showStatus("Expiring strike...");
+  showSpinner();
+
+  const result = await fetchApi("expireStrike", {
+    strikeId,
+    adminId: userId
+  });
+
+  hideSpinner();
+
+  if (!result?.success) {
+    showError("Failed to expire strike.");
+    return false;
+  }
+
+  await refreshStaff();
+  await loadAdmin();
+  showStatus("Strike expired.");
+  return true;
+}
+
 async function openAdminStaffModal(targetId) {
   const member = state.staff.find(staffMember => String(staffMember.discordId).trim() === String(targetId).trim());
   if (!member) return;
@@ -2517,6 +2580,7 @@ async function openAdminStaffModal(targetId) {
   const negativeCount = ratings.filter(rating => isNegativeRating(rating.rating)).length;
   const memberAvgRating = computeAverageRating(ratings);
   const memberRole = getUserRole(member);
+  const memberStrikes = getUserStrikes(targetId);
   const activeStaff = state.staff.filter(staffMember => isTrue(staffMember.isActive));
   const expectedRatings = isTrue(member.isActive) ? Math.max(activeStaff.length - 1, 0) : 0;
   const ratingsGiven = state.ratings.filter(rating =>
@@ -2653,6 +2717,26 @@ async function openAdminStaffModal(targetId) {
         </div>
       </details>
       <details class="accordion-section">
+        <summary>Manage Strikes (${memberStrikes.length})</summary>
+        <div class="accordion-content">
+          ${memberStrikes.length ? memberStrikes.map(strike => `
+            <div class="review-card">
+              <div class="review-card-header">
+                <b>${escapeHtml(strike.reason || "No reason provided")}</b>
+                <span class="note-badge ${strike.active ? "negative" : "positive"}">${strike.active ? "Active" : "Expired"}</span>
+              </div>
+              <p>Issued by ${escapeHtml(getReviewerName(strike.issuedBy || strike.adminId || "Unknown"))} on ${escapeHtml(formatDate(strike.issuedAt || strike.createdAt || ""))}</p>
+              <label for="strikeReasonEdit-${strike.strikeId}">Edit reason</label>
+              <textarea id="strikeReasonEdit-${strike.strikeId}" rows="3">${escapeHtml(strike.reason || "")}</textarea>
+              <div class="action-row">
+                <button data-admin-update-strike-reason="${strike.strikeId}" class="button-secondary" type="button">Save reason</button>
+                ${strike.active ? `<button data-admin-expire-strike="${strike.strikeId}" class="button-soft" type="button">Expire strike</button>` : ""}
+              </div>
+            </div>
+          `).join("") : `<div class="empty-state">No strikes on file.</div>`}
+        </div>
+      </details>
+      <details class="accordion-section">
         <summary>Issue Strike</summary>
         <div class="accordion-content">
           <label for="strikeReasonInput">Reason for strike</label>
@@ -2717,6 +2801,25 @@ async function openAdminStaffModal(targetId) {
 
   getEl("adminIssueStrikeBtn")?.addEventListener("click", async () => {
     await saveAdminStrike(targetId);
+  });
+
+  document.querySelectorAll("[data-admin-update-strike-reason]").forEach(button => {
+    button.addEventListener("click", async () => {
+      const strikeId = button.getAttribute("data-admin-update-strike-reason");
+      const reasonInput = getEl(`strikeReasonEdit-${strikeId}`);
+      const reason = reasonInput?.value.trim() || "";
+      await updateAdminStrikeReason(strikeId, targetId, reason);
+    });
+  });
+
+  document.querySelectorAll("[data-admin-expire-strike]").forEach(button => {
+    button.addEventListener("click", async () => {
+      const strikeId = button.getAttribute("data-admin-expire-strike");
+      if (!strikeId) return;
+      if (confirm("Expire this strike? This cannot be undone easily.")) {
+        await expireAdminStrike(strikeId);
+      }
+    });
   });
 
   getEl("adminResetTokenBtn")?.addEventListener("click", async () => {
