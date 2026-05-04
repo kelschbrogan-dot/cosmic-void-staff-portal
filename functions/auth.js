@@ -1,29 +1,52 @@
-export async function onRequest(context) {
-  const url = new URL(context.request.url);
+const TARGET_API = "https://script.google.com/macros/s/AKfycbyl0_Aq4jBLmMKTqXORLxb6AGJ0xKOYti-DITn6Ix0NbnSSgPDKRSxQKAZ24sz_0DTG/exec";
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST,OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type,x-api-key"
+};
 
-  const id = url.searchParams.get("id");
-  const token = url.searchParams.get("token");
+export default {
+  async fetch(request) {
+    if (request.method === "OPTIONS") {
+      return new Response(null, { headers: CORS_HEADERS });
+    }
 
-  if (!id || !token) {
-    return new Response("Unauthorized", { status: 401 });
+    let body = {};
+    try {
+      body = await request.json();
+    } catch (error) {
+      body = {};
+    }
+
+    const headers = new Headers();
+    headers.set("Content-Type", "application/json");
+
+    const apiKey = request.headers.get("x-api-key") || request.headers.get("X-API-Key");
+    if (apiKey) {
+      headers.set("x-api-key", apiKey);
+    }
+
+    const response = await fetch(TARGET_API, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      redirect: "follow"
+    });
+
+    const text = await response.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (error) {
+      data = { error: "BAD_RESPONSE", raw: text };
+    }
+
+    const responseHeaders = new Headers(CORS_HEADERS);
+    responseHeaders.set("Content-Type", "application/json");
+
+    return new Response(JSON.stringify(data), {
+      status: response.status,
+      headers: responseHeaders
+    });
   }
-
-  // Call your Google Script
-  const res = await fetch("https://script.google.com/macros/s/AKfycbyl0_Aq4jBLmMKTqXORLxb6AGJ0xKOYti-DITn6Ix0NbnSSgPDKRSxQKAZ24sz_0DTG/exec", {
-    method: "POST",
-    body: JSON.stringify({ action: "getStaff" })
-  });
-
-  const staff = await res.json();
-
-  const user = staff.find(s => s.discordId == id);
-
-  if (!user || user.secretToken !== token || user.isActive !== true) {
-    return new Response("Access Denied", { status: 403 });
-  }
-
-  // Pass user info forward
-  context.data.user = user;
-
-  return context.next();
-}
+};

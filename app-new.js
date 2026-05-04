@@ -1,5 +1,7 @@
 const API = "https://remoteworker23.jeoliver1fan.workers.dev/";
 const API_KEY = "cosmic-void-api-key-v1";
+const TAB_LOCK_ENABLED = true; // set false to unlock LOA/Quota/Standing for regular staff
+const LOCKED_TAB_MESSAGE = "This section is temporarily locked. Reviews remain available to staff this month.";
 const params = new URLSearchParams(window.location.search);
 const userId = params.get("id");
 const token = params.get("token");
@@ -45,6 +47,21 @@ function getCurrentMonth() {
 
 function isTrue(value) {
   return value === true || String(value || "").trim().toLowerCase() === "true";
+}
+
+function isTabLocked(page) {
+  if (!TAB_LOCK_ENABLED) return false;
+  if (!page || page === "reviews") return false;
+  if (!state.user) return true;
+  return !isAdmin(state.user);
+}
+
+function updateTabStates() {
+  document.querySelectorAll("[data-page]").forEach(link => {
+    const locked = isTabLocked(link.dataset.page);
+    link.classList.toggle("disabled-tab", locked);
+    link.setAttribute("aria-disabled", locked ? "true" : "false");
+  });
 }
 
 function formatMonthLabel(month) {
@@ -784,6 +801,14 @@ function getMyNotes() {
   });
 }
 
+function getMyReceivedRatings() {
+  return state.ratings.filter(rating => {
+    const targetMatches = String(rating.targetId).trim() === String(userId).trim();
+    const reviewerMatches = String(rating.reviewerId).trim() !== String(userId).trim();
+    return targetMatches && reviewerMatches && rating.rating && rating.rating !== "N/A";
+  });
+}
+
 function showSpinner() {
   const spinner = getEl("loadingSpinner");
   if (spinner) spinner.style.display = "block";
@@ -982,6 +1007,7 @@ async function verifyUser() {
     adminTab.classList.toggle("hidden", !isAdmin(state.user));
   }
 
+  updateTabStates();
   return true;
 }
 
@@ -1079,6 +1105,11 @@ function renderReviewsSummary() {
   const inboxMessages = getInboxMessages();
   const unreadCount = inboxMessages.filter(message => !message.isRead).length;
 
+  const receivedRatings = getMyReceivedRatings();
+  const receivedPositive = receivedRatings.filter(rating => isPositiveRating(rating.rating)).length;
+  const receivedNegative = receivedRatings.filter(rating => isNegativeRating(rating.rating)).length;
+  const averageReceived = computeAverageRating(receivedRatings);
+
   container.innerHTML = `
     <div class="summary-shell">
       <div class="summary-topline">
@@ -1111,6 +1142,11 @@ function renderReviewsSummary() {
           <b>Needs Attention</b>
           <div class="stat-value negative">${negativeRatings}</div>
           <div class="stat-subtext">Below Par, Needs Work</div>
+        </div>
+        <div class="mini-stat">
+          <b>Your Rating</b>
+          <div class="stat-value accent">${averageReceived ? averageReceived.toFixed(1) : "No ratings yet"}</div>
+          <div class="stat-subtext">from other staff so far</div>
         </div>
         <div class="mini-stat">
           <b>Notes Added</b>
@@ -2967,16 +3003,28 @@ function setupNav() {
 
   getEl("loaTab")?.addEventListener("click", async event => {
     event.preventDefault();
+    if (isTabLocked("loa")) {
+      showStatus(LOCKED_TAB_MESSAGE);
+      return;
+    }
     await loadInactivity();
   });
 
   getEl("quotaTab")?.addEventListener("click", async event => {
     event.preventDefault();
+    if (isTabLocked("quota")) {
+      showStatus(LOCKED_TAB_MESSAGE);
+      return;
+    }
     await loadQuota();
   });
 
   getEl("standingTab")?.addEventListener("click", async event => {
     event.preventDefault();
+    if (isTabLocked("standing")) {
+      showStatus(LOCKED_TAB_MESSAGE);
+      return;
+    }
     await loadStanding();
   });
 
