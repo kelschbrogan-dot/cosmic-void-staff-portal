@@ -940,8 +940,8 @@ function logMessage(d) {
   const targetSheet = sheet(QUOTA_TAB);
   const rows = targetSheet.getDataRange().getValues();
   const headers = rows.shift();
-  const monthIndex = headers.indexOf("month");
-  const discordIndex = headers.indexOf("discordId");
+  const monthIndex = ensureHeaderColumn(targetSheet, headers, "month");
+  const discordIndex = ensureHeaderColumn(targetSheet, headers, "discordId");
   const messagesIndex = ensureHeaderColumn(targetSheet, headers, "messages");
   const updatedAtIndex = ensureHeaderColumn(targetSheet, headers, "updatedAt");
   let foundIndex = -1;
@@ -958,7 +958,8 @@ function logMessage(d) {
     return json({ success: true, month, discordId, messages: 1 });
   }
 
-  const currentMessages = Number(rows[foundIndex - 2][messagesIndex] || 0) + 1;
+  const rowData = rows[foundIndex - 2] || [];
+  const currentMessages = Number(rowData[messagesIndex] || 0) + 1;
   setPlainTextValue(targetSheet.getRange(foundIndex, messagesIndex + 1), currentMessages);
   setPlainTextValue(targetSheet.getRange(foundIndex, updatedAtIndex + 1), new Date());
 
@@ -983,8 +984,8 @@ function logSession(d) {
     const quotaRows = sheet(QUOTA_TAB).getDataRange().getValues();
     const quotaHeaders = quotaRows.shift();
     let quotaRowIndex = -1;
-    const monthIndex = quotaHeaders.indexOf("month");
-    const discordIndex = quotaHeaders.indexOf("discordId");
+    const monthIndex = ensureHeaderColumn(sheet(QUOTA_TAB), quotaHeaders, "month");
+    const discordIndex = ensureHeaderColumn(sheet(QUOTA_TAB), quotaHeaders, "discordId");
     const sessionsIndex = ensureHeaderColumn(sheet(QUOTA_TAB), quotaHeaders, "sessions");
     const updatedAtIndex = ensureHeaderColumn(sheet(QUOTA_TAB), quotaHeaders, "updatedAt");
 

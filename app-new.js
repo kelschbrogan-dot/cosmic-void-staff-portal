@@ -65,7 +65,7 @@ function updateTabStates() {
 }
 
 function formatMonthLabel(month) {
-  const [year, monthIndex] = String(month || "").split("-");
+  const [year, monthIndex] = getMonthKey(month).split("-");
   if (!year || !monthIndex) return String(month || "");
   const date = new Date(Number(year), Number(monthIndex) - 1, 1);
   return date.toLocaleDateString("en-US", { year: "numeric", month: "long" });
@@ -152,7 +152,8 @@ function isUserBlocked() {
 }
 
 function getUserStrikes(userIdToCheck) {
-  return state.strikes.filter(strike => String(strike.discordId).trim() === String(userIdToCheck).trim());
+  const normalizedTarget = getId(userIdToCheck);
+  return state.strikes.filter(strike => getId(strike.discordId) === normalizedTarget);
 }
 
 function getActiveStrikes(userIdToCheck) {
@@ -211,7 +212,7 @@ function getCurrentMonth() {
 }
 
 function getMonthLabel(month) {
-  const [year, monthNum] = String(month || "").split("-");
+  const [year, monthNum] = getMonthKey(month).split("-");
   if (!year || !monthNum) return String(month || "");
   return new Date(Number(year), Number(monthNum) - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
@@ -1564,19 +1565,23 @@ function renderAdminMessageCenter() {
 }
 
 function getMyLoas() {
-  return state.loas.filter(loa => String(loa.discordId).trim() === String(userId).trim() && !loa.deleted);
+  const targetId = getId(userId || state.user?.discordId);
+  return state.loas.filter(loa => getId(loa.discordId) === targetId && !loa.deleted);
 }
 
 function getQuotaRecordForMonth(month = state.month, targetId = userId) {
+  const normalizedMonth = getMonthKey(month);
+  const normalizedId = getId(targetId);
   return state.quotaRecords.find(record =>
-    String(record.discordId).trim() === String(targetId).trim() && String(record.month).trim() === String(month).trim()
+    getMonthKey(record.month) === normalizedMonth && getId(record.discordId) === normalizedId
   );
 }
 
 function getCurrentQuotaRecord() {
-  return getQuotaRecordForMonth(state.month, userId) || {
+  const targetId = getId(userId || state.user?.discordId);
+  return getQuotaRecordForMonth(state.month, targetId) || {
     month: state.month,
-    discordId: userId,
+    discordId: targetId,
     sessions: 0,
     messages: 0,
     ptoUsed: 0,
@@ -1826,7 +1831,7 @@ function openLoaEditModal(loaId) {
 
       const result = await fetchApi("saveLOA", {
         loaId: loa.loaId,
-        discordId: userId,
+        discordId: getId(userId || state.user?.discordId),
         startDate,
         endDate,
         notes,
@@ -1922,7 +1927,7 @@ async function saveLoaRequest() {
   showSpinner();
 
   const result = await fetchApi("saveLOA", {
-    discordId: userId,
+    discordId: getId(userId || state.user?.discordId),
     startDate: startDate,
     endDate: endDate,
     notes,
@@ -1945,10 +1950,11 @@ async function loadInactivity() {
   showStatus("Loading LOA data...");
   showSpinner();
 
+  const targetId = getId(userId || state.user?.discordId);
   const [loas, quotaRecords, strikes] = await Promise.all([
-    fetchApi("getLOAs", { userId }),
-    fetchApi("getQuotaRecords", { userId, month: state.month }),
-    fetchApi("getStrikes", { userId })
+    fetchApi("getLOAs", { userId: targetId }),
+    fetchApi("getQuotaRecords", { userId: targetId, month: state.month }),
+    fetchApi("getStrikes", { userId: targetId })
   ]);
 
   state.loas = Array.isArray(loas) ? loas : [];
@@ -1965,9 +1971,10 @@ async function loadQuota() {
   showStatus("Loading quota data...");
   showSpinner();
 
+  const targetId = getId(userId || state.user?.discordId);
   const [quotaRecords, strikes] = await Promise.all([
-    fetchApi("getQuotaRecords", { userId, month: state.month }),
-    fetchApi("getStrikes", { userId })
+    fetchApi("getQuotaRecords", { userId: targetId, month: state.month }),
+    fetchApi("getStrikes", { userId: targetId })
   ]);
 
   state.quotaRecords = Array.isArray(quotaRecords) ? quotaRecords : [];
@@ -1983,7 +1990,8 @@ async function loadStanding() {
   showStatus("Loading standing...");
   showSpinner();
 
-  const strikes = await fetchApi("getStrikes", { userId });
+  const targetId = getId(userId || state.user?.discordId);
+  const strikes = await fetchApi("getStrikes", { userId: targetId });
   state.strikes = Array.isArray(strikes) ? strikes : [];
 
   renderStandingPage();
@@ -3199,7 +3207,8 @@ function setupNav() {
     if (!verified) return;
 
     setupNav();
-    const strikes = await fetchApi("getStrikes", { userId });
+    const targetId = getId(userId || state.user?.discordId);
+    const strikes = await fetchApi("getStrikes", { userId: targetId });
     state.strikes = Array.isArray(strikes) ? strikes : [];
 
     if (isUserBlocked()) {
