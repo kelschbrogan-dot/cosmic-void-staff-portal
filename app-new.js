@@ -963,19 +963,24 @@ async function verifyUser() {
     return false;
   }
 
+  console.log("DEBUG: API Responses", { tokenRes, verifyRes, maintenanceRes });
+
   state.maintenance = isTrue(maintenanceRes?.maintenance);
 
   if (!isTrue(tokenRes.success)) {
+    console.error("DEBUG: tokenRes.success is false", tokenRes);
     showDeniedOverlay("INVALID_LOGIN");
     return false;
   }
 
   if (!isTrue(tokenRes.isActive)) {
+    console.error("DEBUG: tokenRes.isActive is false", tokenRes);
     showDeniedOverlay("SUSPENDED");
     return false;
   }
 
   if (!isTrue(verifyRes.valid) && !state.maintenance) {
+    console.error("DEBUG: verifyRes.valid is false", verifyRes);
     showDeniedOverlay("INVALID_LOGIN");
     return false;
   }
