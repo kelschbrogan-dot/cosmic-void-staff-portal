@@ -2474,6 +2474,35 @@ async function saveAdminStaffNote(targetId) {
   showStatus("Staff note saved.");
 }
 
+async function saveAdminStrike(targetId) {
+  const reason = getEl("strikeReasonInput")?.value.trim() || "";
+  if (!reason) {
+    showStatus("Enter a strike reason before issuing.");
+    return;
+  }
+
+  showStatus("Issuing strike...");
+  showSpinner();
+
+  const result = await fetchApi("saveStrike", {
+    discordId: targetId,
+    reason,
+    issuedBy: userId
+  });
+
+  hideSpinner();
+
+  if (!result?.success) {
+    showError("Failed to issue strike.");
+    return;
+  }
+
+  hidePopup();
+  await refreshStaff();
+  await loadAdmin();
+  showStatus("Strike issued successfully.");
+}
+
 async function openAdminStaffModal(targetId) {
   const member = state.staff.find(staffMember => String(staffMember.discordId).trim() === String(targetId).trim());
   if (!member) return;
@@ -2623,6 +2652,17 @@ async function openAdminStaffModal(targetId) {
           <div id="adminStaffTokenResult"></div>
         </div>
       </details>
+      <details class="accordion-section">
+        <summary>Issue Strike</summary>
+        <div class="accordion-content">
+          <label for="strikeReasonInput">Reason for strike</label>
+          <textarea id="strikeReasonInput" rows="4" placeholder="Enter a concise reason for this strike."></textarea>
+          <div class="action-row">
+            <button id="adminIssueStrikeBtn" class="primary-button" type="button">Issue Strike</button>
+          </div>
+          <div id="adminStrikeResult"></div>
+        </div>
+      </details>
     </div>
   `;
 
@@ -2673,6 +2713,10 @@ async function openAdminStaffModal(targetId) {
     await refreshStaff();
     await loadAdmin();
     showStatus(`${name} has been updated.`);
+  });
+
+  getEl("adminIssueStrikeBtn")?.addEventListener("click", async () => {
+    await saveAdminStrike(targetId);
   });
 
   getEl("adminResetTokenBtn")?.addEventListener("click", async () => {
@@ -2883,23 +2927,25 @@ function renderAdmin() {
         </div>
         <div class="stack-list">
           ${pendingLoas.length ? pendingLoas.map(loa => `
-            <div class="review-card">
-              <div class="review-card-header">
+            <details class="accordion-section review-card">
+              <summary>
                 <div>
                   <b>${escapeHtml(getReviewerName(loa.discordId))}</b>
                   <small>${escapeHtml(getDisplayRange(loa.startDate, loa.endDate))}</small>
                 </div>
                 ${buildStatusBadge(loa.status)}
+              </summary>
+              <div class="accordion-content">
+                <div class="mini-stat">Sessions: <strong>${loa.meetsSessionQuota ? "YES" : "NO"}</strong></div>
+                <div class="mini-stat">Messages: <strong>${loa.meetsMessageQuota ? "YES" : "NO"}</strong></div>
+                <p>${escapeHtml(loa.notes || "No notes provided.")}</p>
+                <div class="action-row">
+                  <button class="primary-button" data-admin-loa-approve="${escapeHtml(loa.loaId)}" type="button">Approve</button>
+                  <button class="button-secondary" data-admin-loa-deny="${escapeHtml(loa.loaId)}" type="button">Deny</button>
+                  <button class="button-soft" data-admin-loa-revoke="${escapeHtml(loa.loaId)}" type="button">Revoke</button>
+                </div>
               </div>
-              <div class="mini-stat">Sessions: <strong>${loa.meetsSessionQuota ? "YES" : "NO"}</strong></div>
-              <div class="mini-stat">Messages: <strong>${loa.meetsMessageQuota ? "YES" : "NO"}</strong></div>
-              <p>${escapeHtml(loa.notes || "No notes provided.")}</p>
-              <div class="action-row">
-                <button class="primary-button" data-admin-loa-approve="${escapeHtml(loa.loaId)}" type="button">Approve</button>
-                <button class="button-secondary" data-admin-loa-deny="${escapeHtml(loa.loaId)}" type="button">Deny</button>
-                <button class="button-soft" data-admin-loa-revoke="${escapeHtml(loa.loaId)}" type="button">Revoke</button>
-              </div>
-            </div>
+            </details>
           `).join("") : '<div class="empty-state">No pending LOA requests at this time.</div>'}
         </div>
       </div>

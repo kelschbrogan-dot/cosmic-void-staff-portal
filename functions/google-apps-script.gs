@@ -47,6 +47,16 @@ function getRequestApiKey(e, d) {
   if (!key && d && d.apiKey) {
     key = String(d.apiKey).trim();
   }
+  if (!key && e && e.postData && e.postData.contents) {
+    try {
+      const parsed = JSON.parse(e.postData.contents);
+      if (parsed && parsed.apiKey) {
+        key = String(parsed.apiKey).trim();
+      }
+    } catch (parseError) {
+      // ignore invalid JSON; fallback return will handle it
+    }
+  }
   return key;
 }
 
@@ -299,12 +309,51 @@ function uniqueIds(ids) {
 
 function parseSessionPayload(raw, discordId) {
   const normalizedDiscordId = normalizeId(discordId);
-  const hostIds = extractMentionedIds(raw);
-  let hostId = normalizedDiscordId || (hostIds.length ? hostIds[0] : "");
-  const cohostLine = raw.match(/co-?host[s]?\s*[:\-]\s*([^\n\r]*)/i);
-  const cohostIds = cohostLine ? extractMentionedIds(cohostLine[1]) : [];
-  const notesMatch = raw.match(/notes\s*[:\-]\s*([\s\S]*)/i);
-  const notes = notesMatch ? String(notesMatch[1] || "").trim() : "";
+  const cleanedRaw = String(raw || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\*\*/g, "")
+    .trim();
+
+  const mentionIds = extractMentionedIds(cleanedRaw);
+  const sections = {};
+
+  const sectionRegex = /(^|\n)\s*([A-Za-z0-9 \-/#&]+?)\s*:\s*([\s\S]*?)(?=(\n\s*[A-Za-z0-9 \-/#&]+?\s*:\s*)|$)/gi;
+  let sectionMatch;
+  while ((sectionMatch = sectionRegex.exec(cleanedRaw)) !== null) {
+    const key = String(sectionMatch[2] || "").trim().toLowerCase();
+    const value = String(sectionMatch[3] || "").trim();
+    sections[key] = value;
+  }
+
+  const announcementText = sections['link session announcement'] || sections['session announcement'] || cleanedRaw;
+  const rawHostIds = extractMentionedIds(announcementText);
+  let hostId = rawHostIds.length ? rawHostIds[0] : "";
+  if (!hostId) {
+    hostId = normalizedDiscordId || (mentionIds.length ? mentionIds[0] : "");
+  }
+
+  const cohostText =
+    sections['co-host'] ||
+    sections['co-hosts'] ||
+    sections['cohost'] ||
+    sections['cohosts'] ||
+    sections['co host'] ||
+    sections['co hosts'] ||
+    "";
+  let cohostIds = extractMentionedIds(cohostText);
+
+  if (!cohostIds.length) {
+    const attendanceText = sections['attendance'] || sections['attendees'] || sections['attendance list'] || "";
+    cohostIds = extractMentionedIds(attendanceText);
+  }
+
+  if (!cohostIds.length) {
+    const otherMentions = mentionIds.filter(id => id !== hostId);
+    cohostIds = otherMentions;
+  }
+
+  const notes = String(sections['notes'] || sections['note'] || "").trim();
+
   return {
     hostId,
     cohostIds: uniqueIds(cohostIds),
