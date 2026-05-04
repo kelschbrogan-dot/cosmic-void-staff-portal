@@ -21,9 +21,15 @@ export default {
     const headers = new Headers();
     headers.set("Content-Type", "application/json");
 
-    const apiKey = request.headers.get("x-api-key") || request.headers.get("X-API-Key");
+    // Try to capture API key from multiple header cases
+    const apiKey = request.headers.get("x-api-key") || 
+                   request.headers.get("X-API-Key") || 
+                   request.headers.get("X-API-KEY") ||
+                   body.apiKey;
+    
     if (apiKey) {
       headers.set("x-api-key", apiKey);
+      headers.set("X-API-Key", apiKey);
     }
 
     const response = await fetch(TARGET_API, {

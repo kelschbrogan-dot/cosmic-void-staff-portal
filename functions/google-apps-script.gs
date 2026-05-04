@@ -41,7 +41,8 @@ function getApiKey() {
 function getRequestApiKey(e, d) {
   let key = "";
   if (e && e.headers) {
-    key = String(e.headers["x-api-key"] || e.headers["X-API-Key"] || e.headers["X-API-KEY"] || "").trim();
+    // Google Apps Script normalizes headers to lowercase
+    key = String(e.headers["x-api-key"] || e.headers["X-Api-Key"] || e.headers["X-API-KEY"] || "").trim();
   }
   if (!key && d && d.apiKey) {
     key = String(d.apiKey).trim();
@@ -50,7 +51,14 @@ function getRequestApiKey(e, d) {
 }
 
 function requireApiKey(e, d) {
-  return getRequestApiKey(e, d) === getApiKey();
+  const requestKey = getRequestApiKey(e, d);
+  const expectedKey = getApiKey();
+  
+  if (!requestKey || requestKey !== expectedKey) {
+    Logger.log("API Key mismatch - Request: " + requestKey + ", Expected: " + expectedKey);
+  }
+  
+  return requestKey === expectedKey;
 }
 
 function normalizeMonth(value) {

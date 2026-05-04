@@ -922,9 +922,10 @@ async function fetchApi(action, data = {}) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "X-API-Key": API_KEY,
         "x-api-key": API_KEY
       },
-      body: JSON.stringify({ action, ...data }),
+      body: JSON.stringify({ action, apiKey: API_KEY, ...data }),
       signal: controller.signal
     });
 
